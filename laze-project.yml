@@ -10,3 +10,5 @@ builders:
 
 apps:
   - name: dropbot-firmware
+    selects:
+      - network
