@@ -4,5 +4,9 @@ imports:
       tag: v0.5.0
     dldir: ariel-os
 
+builders:
+  - name: dropbot
+    parent: espressif-esp32-c6-devkitc-1
+
 apps:
-  - name: project-emerge-dropbot-firmware
+  - name: dropbot-firmware
