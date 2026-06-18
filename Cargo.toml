@@ -1,12 +1,64 @@
 [package]
-name = "project-emerge-dropbot-firmware"
+edition = "2021"
+name    = "project-emerge-firmware"
+rust-version = "1.88"
 version = "0.1.0"
-edition = "2024"
+
+[lints.clippy]
+needless_return       = "allow"
+redundant_field_names = "allow"
+result_large_err      = "allow"
+too_many_arguments    = "allow"
+useless_conversion    = "allow"
+
+[[bin]]
+name = "project-emerge-firmware"
+path = "./src/bin/main.rs"
+test = false
+
+[[test]]
+name = "hello_test"
+harness = false
 
 [dependencies]
-ariel-os = { path = "build/imports/ariel-os/src/ariel-os", features = [] }
-ariel-os-boards = { path = "build/imports/ariel-os/src/ariel-os-boards" }
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = [
-  'cfg(context, values(any()))',
+defmt = "1.1.0"
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6"] }
+esp-backtrace = { version = "0.19.0", features = [
+    "esp32c6",
+    "panic-handler",
+    "defmt",
 ] }
+esp-hal = { version = "1.1.1", features = [
+  "defmt",
+  "esp32c6",
+  "unstable",
+] }
+
+embassy-executor = { version = "0.10.0", features = [
+  "defmt",
+] }
+embassy-time = { version = "0.5.1", features = ["defmt"] }
+esp-rtos = { version = "0.3.0", features = ["defmt", "embassy", "esp32c6"] }
+rtt-target = { version = "0.6.2", features = ["defmt"] }
+static_cell = "2.1.1"
+
+[dev-dependencies]
+embedded-test = { version = "0.7.1", features = [
+  "defmt",
+  "embassy-010",
+  "external-executor",
+] }
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units    = 1     # LLVM can perform better optimizations using a single thread
+debug            = 2
+debug-assertions = false
+incremental      = false
+lto              = 'fat'
+opt-level        = 's'
+overflow-checks  = false
