@@ -9,6 +9,9 @@ use esp_bootloader_esp_idf as _;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::timer::timg::TimerGroup;
 
+pub mod drivers;
+pub mod traits;
+
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[embassy_executor::task]
