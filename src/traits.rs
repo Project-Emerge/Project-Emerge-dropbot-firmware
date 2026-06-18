@@ -6,7 +6,7 @@ pub enum MotorStatus {
     Motoring { left_speed: f32, right_speed: f32 },
 }
 
-trait MotorController {
+pub trait MotorController {
     type Error: fmt::Debug;
 
     /// Sets the speed of the left and right motors.
