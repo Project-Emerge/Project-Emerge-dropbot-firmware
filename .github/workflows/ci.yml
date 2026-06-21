@@ -35,6 +35,17 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Restore Cargo cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            target
+          key: cargo-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml', 'flake.lock', 'flake.nix') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ env.RUST_TARGET }}-
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
