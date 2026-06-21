@@ -6,6 +6,7 @@ use embedded_hal::{
 use crate::{drivers::motor_driver::types, traits};
 
 pub mod motor_driver;
+pub mod ota_driver;
 
 #[derive(Debug)]
 pub struct MotorDriverError<PwmError, SleepError> {

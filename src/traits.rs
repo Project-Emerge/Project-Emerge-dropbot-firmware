@@ -19,3 +19,16 @@ pub trait MotorController {
     /// Returns the current status of the motors.
     fn get_status(&self) -> Result<MotorStatus, Self::Error>;
 }
+
+pub trait OtaUpdater {
+    type Error: fmt::Debug;
+
+    /// Initiates the OTA update process. This should handle the entire update process, including downloading the new firmware, verifying it, and applying it.
+    fn perform_update(&mut self) -> Result<(), Self::Error>;
+}
+
+pub enum State {
+    Running,
+    PowerSaving,
+    OTA,
+}
