@@ -13,7 +13,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  ESPFLASH_SKIP_UPDATE_CHECK: "1"
+  ESPFLASH_SKIP_UPDATE_CHECK: "true"
   FIRMWARE_NAME: project-emerge-firmware
   RUST_TARGET: riscv32imac-unknown-none-elf
 
