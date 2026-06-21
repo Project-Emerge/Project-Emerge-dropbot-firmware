@@ -122,7 +122,6 @@ jobs:
         run: gh release upload "${{ steps.release.outputs.tag_name }}" dist/* --clobber
 
   success:
-    name: Success
     needs:
       - firmware
       - release
