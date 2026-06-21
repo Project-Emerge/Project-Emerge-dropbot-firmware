@@ -24,7 +24,7 @@ pub trait OtaUpdater {
     type Error: fmt::Debug;
 
     /// Initiates the OTA update process. This should handle the entire update process, including downloading the new firmware, verifying it, and applying it.
-    fn perform_update(&mut self) -> Result<(), Self::Error>;
+    fn perform_update(&mut self, new_image: &[u8]) -> Result<(), Self::Error>;
 }
 
 pub enum State {
