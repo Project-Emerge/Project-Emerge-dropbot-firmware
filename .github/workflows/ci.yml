@@ -1,0 +1,111 @@
+name: CI and Release
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  ESPFLASH_SKIP_UPDATE_CHECK: "1"
+  FIRMWARE_NAME: project-emerge-firmware
+  RUST_TARGET: riscv32imac-unknown-none-elf
+
+jobs:
+  firmware:
+    name: Firmware QA
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: nix develop -c bash -e {0}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint with Clippy
+        run: RUSTC_WORKSPACE_WRAPPER=clippy-driver CLIPPY_ARGS=-Dwarnings cargo check --workspace --all-features --locked
+
+      - name: Build release firmware
+        run: cargo build --release --locked
+
+      - name: Compile embedded test image
+        run: cargo rustc --test hello_test --all-features --locked -- -C link-arg=-Tembedded-test.x
+
+      - name: Package firmware image
+        run: |
+          mkdir -p dist
+          cp "target/${RUST_TARGET}/release/${FIRMWARE_NAME}" "dist/${FIRMWARE_NAME}.elf"
+          espflash save-image --chip esp32c6 --merge "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}.bin"
+          sha256sum "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}.bin" > dist/SHA256SUMS
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.FIRMWARE_NAME }}-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Release firmware
+    needs: firmware
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create or update release PR
+        id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+
+      - name: Download firmware artifact
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ env.FIRMWARE_NAME }}-${{ github.sha }}
+          path: dist
+
+      - name: Version release assets
+        if: ${{ steps.release.outputs.release_created }}
+        shell: bash -e {0}
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          mv "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}-${version}.elf"
+          mv "dist/${FIRMWARE_NAME}.bin" "dist/${FIRMWARE_NAME}-${version}.bin"
+          sha256sum "dist/${FIRMWARE_NAME}-${version}.elf" "dist/${FIRMWARE_NAME}-${version}.bin" > "dist/${FIRMWARE_NAME}-${version}-SHA256SUMS"
+
+      - name: Upload release assets
+        if: ${{ steps.release.outputs.release_created }}
+        shell: bash -e {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.release.outputs.tag_name }}" dist/* --clobber

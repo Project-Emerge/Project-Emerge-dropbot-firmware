@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "rust",
+  "packages": {
+    ".": {
+      "package-name": "project-emerge-firmware",
+      "component": "project-emerge-firmware",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
