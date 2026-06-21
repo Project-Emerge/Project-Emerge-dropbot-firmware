@@ -120,3 +120,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ steps.release.outputs.tag_name }}" dist/* --clobber
+
+  success:
+    name: Success
+    needs:
+      - firmware
+      - release
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check workflow outcome
+        shell: bash -e {0}
+        run: |
+          firmware_result="${{ needs.firmware.result }}"
+          release_result="${{ needs.release.result }}"
+
+          echo "firmware: ${firmware_result}"
+          echo "release: ${release_result}"
+
+          if [ "${firmware_result}" != "success" ]; then
+            exit 1
+          fi
+
+          case "${release_result}" in
+            success|skipped)
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
