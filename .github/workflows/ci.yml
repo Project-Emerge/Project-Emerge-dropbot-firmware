@@ -28,15 +28,15 @@ jobs:
         shell: nix develop -c bash -e {0}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore Cargo cache
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: |
             ~/.cargo/git
@@ -66,7 +66,7 @@ jobs:
           sha256sum "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}.bin" > dist/SHA256SUMS
 
       - name: Upload firmware artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ env.FIRMWARE_NAME }}-${{ github.sha }}
           path: dist/*
@@ -86,13 +86,13 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
 
       - name: Create or update release PR
         id: release
-        uses: googleapis/release-please-action@v5
+        uses: googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062 # v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -100,7 +100,7 @@ jobs:
 
       - name: Download firmware artifact
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ${{ env.FIRMWARE_NAME }}-${{ github.sha }}
           path: dist

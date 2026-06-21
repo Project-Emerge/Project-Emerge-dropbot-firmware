@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "local>Project-Emerge/renovate-config"
+    "local>Project-Emerge/renovate-config",
+    "helpers:pinGitHubActionDigests"
   ],
   "packageRules": [
     {
