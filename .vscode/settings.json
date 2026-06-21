@@ -1,0 +1,5 @@
+{
+  "rust-analyzer.server.path": "${workspaceFolder}/.vscode/rust-analyzer-nix",
+  "rust-analyzer.cargo.target": "riscv32imac-unknown-none-elf",
+  "rust-analyzer.check.allTargets": false
+}

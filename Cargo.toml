@@ -22,7 +22,7 @@ harness = false
 
 [dependencies]
 defmt = "1.1.0"
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6"] }
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6", "defmt"] }
 esp-backtrace = { version = "0.19.0", features = [
     "esp32c6",
     "panic-handler",

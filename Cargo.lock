@@ -569,6 +569,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35ffc117c3a9859835d89d0e90f5ee9886ce2264a71a849a7a22ab5308f6653c"
 dependencies = [
  "cfg-if",
+ "defmt 1.1.0",
  "document-features",
  "embedded-storage",
  "esp-config",

@@ -33,11 +33,18 @@ impl OtaUpdater for OtaDriver {
                 partition.len()
             );
         }
-        debug!("Currenly booted partition: {:?}", &&partition_table.booted_partition()?.map(|p| p.label_as_str()));
-        let mut ota = esp_bootloader_esp_idf::ota_updater::OtaUpdater::new(&mut self.flash, &mut buffer)?;
+        debug!(
+            "Currently booted partition: {:?}",
+            &&partition_table
+                .booted_partition()?
+                .map(|p| p.label_as_str())
+        );
+        let mut ota =
+            esp_bootloader_esp_idf::ota_updater::OtaUpdater::new(&mut self.flash, &mut buffer)?;
         let current = ota.selected_partition()?;
         info!(
-            "current image state {:?} (only relevant if the bootloader was built with auto-rollback support)",
+            "selected OTA partition {:?}; current image state {:?} (only relevant if the bootloader was built with auto-rollback support)",
+            current,
             ota.current_ota_state()
         );
         Ok(())

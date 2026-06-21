@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+
+exec nix develop path:. --command rust-analyzer "$@"
