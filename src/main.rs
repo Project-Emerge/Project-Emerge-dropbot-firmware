@@ -1,16 +1,52 @@
 #![no_main]
 #![no_std]
 
-use ariel_os::{
-    debug::{ExitCode, exit},
-    log::info,
-};
+mod pins;
+mod drivers;
+mod traits;
 
-#[ariel_os::task(autostart)]
-async fn main() {
+use ariel_os::{asynch::spawner, gpio::Output, log::info, time::Timer, net};
+use esp_hal::{mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig}, time::Rate};
+
+use crate::{drivers::motor_driver::{DRV8833Driver, types::MotorConfig}, traits::MotorController};
+
+#[ariel_os::task(autostart, peripherals)]
+async fn main(peripherals: pins::Peripherals) -> ! {
+    let _stack = net::network_stack().await.unwrap();
     info!(
         "Hello from main()! Running on a {} board.",
         ariel_os::buildinfo::BOARD
     );
-    exit(ExitCode::SUCCESS);
+    spawner().spawn(manage_btn(peripherals.motor_driver)).unwrap();
+    loop {
+        Timer::after(ariel_os::time::Duration::from_secs(1)).await;
+    }
+}
+
+#[ariel_os::task]
+async fn manage_btn(pins: pins::MotorDriverPins) -> ! {
+    let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(32)).unwrap();
+    let mut pwm_module = McPwm::new(pins.pwm_device, clock_cfg);
+    pwm_module.operator0.set_timer(&pwm_module.timer0);
+    pwm_module.operator1.set_timer(&pwm_module.timer1);
+
+    let (ain1, ain2) = pwm_module.operator0.with_pins(
+        pins.ain1,
+        PwmPinConfig::UP_ACTIVE_HIGH,
+        pins.ain2,
+        PwmPinConfig::UP_ACTIVE_HIGH,
+    );
+    let (bin1, bin2) = pwm_module.operator1.with_pins(
+        pins.bin1,
+        PwmPinConfig::UP_ACTIVE_HIGH,
+        pins.bin2,
+        PwmPinConfig::UP_ACTIVE_HIGH,
+    );
+    let sleep_pin = Output::new(pins.sleep, ariel_os::gpio::Level::High);
+    let mut motor_driver = DRV8833Driver::new(ain1, ain2, bin1, bin2, sleep_pin, MotorConfig::default());
+
+    loop {
+        motor_driver.set_speed(0.5, 0.5).unwrap();
+        Timer::after(ariel_os::time::Duration::from_millis(10)).await;
+    }
 }

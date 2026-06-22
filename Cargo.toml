@@ -3,9 +3,30 @@ name = "project-emerge-dropbot-firmware"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "dropbot-firmware"
+path = "src/main.rs"
+
 [dependencies]
-ariel-os = { path = "build/imports/ariel-os/src/ariel-os", features = [] }
+ariel-os = { path = "build/imports/ariel-os/src/ariel-os", features = [ "no-boards", "external-interrupts", "time"] }
 ariel-os-boards = { path = "build/imports/ariel-os/src/ariel-os-boards" }
+embedded-hal = "1.0"
+
+[target.'cfg(context = "esp32c6")'.dependencies]
+esp-hal = { version = "~1.0", features = ["unstable"] }
+# esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6", "defmt"] }
+# esp-backtrace = { version = "0.19.0", features = [
+#     "esp32c6",
+#     "panic-handler",
+#     "defmt",
+# ] }
+# esp-hal = { version = "1.0.0", features = [
+#   "defmt",
+#   "esp32c6",
+#   "unstable",
+# ] }
+# esp-storage = { version = "0.9.0", features = [ "esp32c6" ] }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(context, values(any()))',
