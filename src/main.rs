@@ -1,14 +1,20 @@
 #![no_main]
 #![no_std]
 
-mod pins;
 mod drivers;
+mod pins;
 mod traits;
 
-use ariel_os::{asynch::spawner, gpio::Output, log::info, time::Timer, net};
-use esp_hal::{mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig}, time::Rate};
+use ariel_os::{asynch::spawner, gpio::Output, log::info, net, time::Timer};
+use esp_hal::{
+    mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode},
+    time::Rate,
+};
 
-use crate::{drivers::motor_driver::{DRV8833Driver, types::MotorConfig}, traits::MotorController};
+use crate::{
+    drivers::motor_driver::{DRV8833Driver, types::MotorConfig},
+    traits::MotorController,
+};
 
 #[ariel_os::task(autostart, peripherals)]
 async fn main(peripherals: pins::Peripherals) -> ! {
@@ -17,7 +23,9 @@ async fn main(peripherals: pins::Peripherals) -> ! {
         "Hello from main()! Running on a {} board.",
         ariel_os::buildinfo::BOARD
     );
-    spawner().spawn(manage_btn(peripherals.motor_driver)).unwrap();
+    spawner()
+        .spawn(manage_btn(peripherals.motor_driver))
+        .unwrap();
     loop {
         Timer::after(ariel_os::time::Duration::from_secs(1)).await;
     }
@@ -28,7 +36,11 @@ async fn manage_btn(pins: pins::MotorDriverPins) -> ! {
     let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(32)).unwrap();
     let mut pwm_module = McPwm::new(pins.pwm_device, clock_cfg);
     pwm_module.operator0.set_timer(&pwm_module.timer0);
-    pwm_module.operator1.set_timer(&pwm_module.timer1);
+    pwm_module.operator1.set_timer(&pwm_module.timer0);
+    let timer_clock_cfg = clock_cfg
+        .timer_clock_with_frequency(1599, PwmWorkingMode::Increase, Rate::from_khz(20))
+        .unwrap();
+    pwm_module.timer0.start(timer_clock_cfg);
 
     let (ain1, ain2) = pwm_module.operator0.with_pins(
         pins.ain1,
@@ -43,10 +55,12 @@ async fn manage_btn(pins: pins::MotorDriverPins) -> ! {
         PwmPinConfig::UP_ACTIVE_HIGH,
     );
     let sleep_pin = Output::new(pins.sleep, ariel_os::gpio::Level::High);
-    let mut motor_driver = DRV8833Driver::new(ain1, ain2, bin1, bin2, sleep_pin, MotorConfig::default());
+    let mut motor_driver =
+        DRV8833Driver::new(ain1, ain2, bin1, bin2, sleep_pin, MotorConfig::default());
 
     loop {
         motor_driver.set_speed(0.5, 0.5).unwrap();
+        info!("Motors set to 50% speed forward.");
         Timer::after(ariel_os::time::Duration::from_millis(10)).await;
     }
 }
