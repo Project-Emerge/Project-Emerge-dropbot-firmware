@@ -3,3 +3,6 @@ include = ["../build/imports/ariel-os/ariel-os-cargo.toml"]
 [env]
 CONFIG_WIFI_NETWORK = "your_wifi_network"
 CONFIG_WIFI_PASSWORD = "your_wifi_password"
+# Keep application lifecycle events visible while suppressing noisy networking internals.
+# Set this to `debug` temporarily when investigating firmware behavior.
+DEFMT_LOG = { value = "info,esp_radio=warn,embassy_net=warn", force = true }

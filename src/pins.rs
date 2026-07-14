@@ -1,4 +1,4 @@
-use ariel_os::hal::peripherals;
+use ariel_os::hal::{i2c, peripherals};
 
 #[cfg(context = "esp32c6")]
 ariel_os::hal::define_peripherals!(MotorDriverPins {
@@ -40,6 +40,8 @@ ariel_os::hal::define_peripherals!(ExpansionPins {
     io19: GPIO19,
 });
 
+#[cfg(context = "esp32c6")]
+pub type I2cBus = i2c::controller::I2C0;
 #[cfg(context = "esp32c6")]
 ariel_os::hal::define_peripherals!(I2cPins {
     sda: GPIO23,

@@ -1,31 +1,40 @@
 #![no_main]
 #![no_std]
 
+use core::fmt::Write as _;
+
 mod drivers;
 mod pins;
 mod traits;
 
-use ariel_os::{asynch::spawner, gpio::Output, log::info, net, time::Timer};
+use ariel_os::{
+    asynch::spawner,
+    gpio::Output,
+    hal,
+    i2c::controller::{Kilohertz, highest_freq_in},
+    log::{Debug2Format, debug, error, info},
+    net,
+    time::Timer,
+};
 use esp_hal::{
     mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode},
     time::Rate,
 };
+use heapless::String;
 
 use crate::{
     drivers::motor_driver::{DRV8833Driver, types::MotorConfig},
-    traits::MotorController,
+    pins::I2cBus,
+    traits::{DisplayController, MotorController},
 };
 
 #[ariel_os::task(autostart, peripherals)]
 async fn main(peripherals: pins::Peripherals) -> ! {
-    let _stack = net::network_stack().await.unwrap();
-    info!(
-        "Hello from main()! Running on a {} board.",
-        ariel_os::buildinfo::BOARD
-    );
+    info!("firmware: started on {}", ariel_os::buildinfo::BOARD);
     spawner()
         .spawn(manage_btn(peripherals.motor_driver))
         .unwrap();
+    spawner().spawn(manage_display(peripherals.i2c)).unwrap();
     loop {
         Timer::after(ariel_os::time::Duration::from_secs(1)).await;
     }
@@ -60,7 +69,48 @@ async fn manage_btn(pins: pins::MotorDriverPins) -> ! {
 
     loop {
         motor_driver.set_speed(0.5, 0.5).unwrap();
-        info!("Motors set to 50% speed forward.");
+        debug!("motors: left=50% right=50%");
         Timer::after(ariel_os::time::Duration::from_millis(10)).await;
+    }
+}
+
+#[ariel_os::task]
+async fn manage_display(pins: pins::I2cPins) -> ! {
+    let mut i2c_config = hal::i2c::controller::Config::default();
+    i2c_config.frequency = const { highest_freq_in(Kilohertz::kHz(100)..=Kilohertz::kHz(400)) };
+    let bus = I2cBus::new(pins.sda, pins.scl, i2c_config);
+    let mut display = drivers::display_driver::SD1306Driver::new(bus, 0x3C);
+    match display.init().await {
+        Ok(_) => info!("display: initialized"),
+        Err(e) => {
+            error!("display: initialization failed: {:?}", Debug2Format(&e));
+            loop {
+                Timer::after(ariel_os::time::Duration::from_secs(1)).await;
+            }
+        }
+    }
+    if let Err(e) = display.draw_status("---.---.---.---", None, false).await {
+        error!("display: initial draw failed: {:?}", Debug2Format(&e));
+    }
+
+    // `NetworkStack` is !Send: acquire and keep it inside this task's executor.
+    let stack = net::network_stack().await.unwrap();
+
+    loop {
+        stack.wait_config_up().await;
+
+        if let Some(config) = stack.config_v4() {
+            let mut ip_address: String<15> = String::new();
+            let _ = write!(ip_address, "{}", config.address.address());
+
+            if let Err(e) = display.draw_status(ip_address.as_str(), None, true).await {
+                error!("display: network update failed: {:?}", Debug2Format(&e));
+            }
+        }
+
+        stack.wait_config_down().await;
+        if let Err(e) = display.draw_status("---.---.---.---", None, false).await {
+            error!("display: network update failed: {:?}", Debug2Format(&e));
+        }
     }
 }

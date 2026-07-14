@@ -18,3 +18,21 @@ pub trait MotorController {
     /// Puts the motor driver into sleep mode, reducing power consumption. The caller is responsible for ensuring that the motor driver is properly configured to wake up from sleep mode when needed.
     fn sleep(&mut self) -> Result<(), Self::Error>;
 }
+
+pub trait DisplayController {
+    type Error: fmt::Debug;
+
+    /// Initializes the display. This method should be called before any other display operations.
+    async fn init(&mut self) -> Result<(), Self::Error>;
+    /// Clears the display, removing all content.
+    async fn clear(&mut self) -> Result<(), Self::Error>;
+    /// Draws a string of text on the display at the specified coordinates (x, y).
+    async fn draw_text(&mut self, x: u32, y: u32, text: &str) -> Result<(), Self::Error>;
+    /// Draws the complete status mask in a single framebuffer update.
+    async fn draw_status(
+        &mut self,
+        ip_address: &str,
+        rssi_dbm: Option<i32>,
+        network_connected: bool,
+    ) -> Result<(), Self::Error>;
+}
