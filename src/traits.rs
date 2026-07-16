@@ -31,6 +31,7 @@ pub trait DisplayController {
     /// Draws the complete status mask in a single framebuffer update.
     async fn draw_status(
         &mut self,
+        device_id: &str,
         ip_address: &str,
         rssi_dbm: Option<i32>,
         network_connected: bool,

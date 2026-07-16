@@ -28,9 +28,18 @@ use crate::{
     traits::{DisplayController, MotorController},
 };
 
+const DEVICE_ID: &str = match option_env!("DEVICE_ID") {
+    Some(device_id) => device_id,
+    None => "UNSET",
+};
+
 #[ariel_os::task(autostart, peripherals)]
 async fn main(peripherals: pins::Peripherals) -> ! {
-    info!("firmware: started on {}", ariel_os::buildinfo::BOARD);
+    info!(
+        "firmware: started on {} device_id={}",
+        ariel_os::buildinfo::BOARD,
+        DEVICE_ID
+    );
     spawner()
         .spawn(manage_btn(peripherals.motor_driver))
         .unwrap();
@@ -89,7 +98,10 @@ async fn manage_display(pins: pins::I2cPins) -> ! {
             }
         }
     }
-    if let Err(e) = display.draw_status("---.---.---.---", None, false).await {
+    if let Err(e) = display
+        .draw_status(DEVICE_ID, "---.---.---.---", None, false)
+        .await
+    {
         error!("display: initial draw failed: {:?}", Debug2Format(&e));
     }
 
@@ -103,13 +115,19 @@ async fn manage_display(pins: pins::I2cPins) -> ! {
             let mut ip_address: String<15> = String::new();
             let _ = write!(ip_address, "{}", config.address.address());
 
-            if let Err(e) = display.draw_status(ip_address.as_str(), None, true).await {
+            if let Err(e) = display
+                .draw_status(DEVICE_ID, ip_address.as_str(), None, true)
+                .await
+            {
                 error!("display: network update failed: {:?}", Debug2Format(&e));
             }
         }
 
         stack.wait_config_down().await;
-        if let Err(e) = display.draw_status("---.---.---.---", None, false).await {
+        if let Err(e) = display
+            .draw_status(DEVICE_ID, "---.---.---.---", None, false)
+            .await
+        {
             error!("display: network update failed: {:?}", Debug2Format(&e));
         }
     }

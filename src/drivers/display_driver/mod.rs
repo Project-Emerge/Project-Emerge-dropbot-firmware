@@ -77,6 +77,7 @@ impl<I2C: I2c> DisplayController for SD1306Driver<I2C> {
 
     async fn draw_status(
         &mut self,
+        device_id: &str,
         ip_address: &str,
         rssi_dbm: Option<i32>,
         network_connected: bool,
@@ -105,6 +106,9 @@ impl<I2C: I2c> DisplayController for SD1306Driver<I2C> {
         let _ = Line::new(Point::new(0, 32), Point::new(127, 32))
             .into_styled(line_style)
             .draw(display);
+        let _ = Line::new(Point::new(0, 49), Point::new(127, 49))
+            .into_styled(line_style)
+            .draw(display);
 
         let _ =
             Text::with_baseline("IP", Point::new(4, 3), text_style, Baseline::Top).draw(display);
@@ -127,6 +131,10 @@ impl<I2C: I2c> DisplayController for SD1306Driver<I2C> {
             Baseline::Top,
         )
         .draw(display);
+        let _ =
+            Text::with_baseline("ID", Point::new(4, 52), text_style, Baseline::Top).draw(display);
+        let _ = Text::with_baseline(device_id, Point::new(22, 52), text_style, Baseline::Top)
+            .draw(display);
 
         display.flush().await.map_err(DisplayError::Bus)
     }
