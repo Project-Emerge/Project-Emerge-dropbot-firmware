@@ -44,6 +44,16 @@ async fn main(peripherals: pins::Peripherals) -> ! {
         .spawn(manage_btn(peripherals.motor_driver))
         .unwrap();
     spawner().spawn(manage_display(peripherals.i2c)).unwrap();
+    spawner().spawn(manage_mqtt_client()).unwrap();
+    loop {
+        Timer::after(ariel_os::time::Duration::from_secs(1)).await;
+    }
+}
+
+#[ariel_os::task]
+async fn manage_mqtt_client() -> ! {
+    let stack = net::network_stack().await.unwrap();
+
     loop {
         Timer::after(ariel_os::time::Duration::from_secs(1)).await;
     }
