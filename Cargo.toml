@@ -13,11 +13,14 @@ ariel-os-boards = { path = "build/imports/ariel-os/src/ariel-os-boards" }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
 embassy-sync = "0.8.0"
+embassy-futures = "0.1.1"
 embedded-graphics = "0.8.2"
-heapless = "0.8.0"
+heapless = { version = "0.8.0", features = ["serde"] }
 # Board-specific dependencies
 ssd1306-embassy-async = "0.1.0"
 minimq = { version = "0.13.0" }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 [target.'cfg(context = "esp32c6")'.dependencies]
 esp-hal = { version = "~1.0", features = ["unstable"] }
