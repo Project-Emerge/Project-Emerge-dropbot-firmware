@@ -1,37 +1,35 @@
 #![no_main]
 #![no_std]
 
-use core::fmt::Write as _;
+use core::{fmt::Write as _, str::FromStr};
 
 mod drivers;
 mod pins;
 mod traits;
 
 use ariel_os::{
-    asynch::spawner,
-    gpio::Output,
-    hal,
-    i2c::controller::{Kilohertz, highest_freq_in},
-    log::{Debug2Format, debug, error, info},
-    net,
-    time::Timer,
+    asynch::spawner, gpio::Output, hal, i2c::controller::{Kilohertz, highest_freq_in}, log::{Debug2Format, debug, error, info}, net, reexports::embassy_net::{Ipv4Address, tcp::TcpSocket}, time::Timer,
 };
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use esp_hal::{
     mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode},
     time::Rate,
 };
 use heapless::String;
-
+use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Session, TopicFilter};
 use crate::{
     drivers::motor_driver::{DRV8833Driver, types::MotorConfig},
     pins::I2cBus,
     traits::{DisplayController, MotorController},
 };
 
+const TCP_BUFFER_SIZE: usize = 1024;
 const DEVICE_ID: &str = match option_env!("DEVICE_ID") {
     Some(device_id) => device_id,
     None => "UNSET",
 };
+
+static NETWORK_STATUS: Signal<CriticalSectionRawMutex, Ipv4Address> = Signal::new();
 
 #[ariel_os::task(autostart, peripherals)]
 async fn main(peripherals: pins::Peripherals) -> ! {
@@ -53,9 +51,68 @@ async fn main(peripherals: pins::Peripherals) -> ! {
 #[ariel_os::task]
 async fn manage_mqtt_client() -> ! {
     let stack = net::network_stack().await.unwrap();
+    stack.wait_config_up().await;
+
+    if let Some(config) = stack.config_v4() {
+        NETWORK_STATUS.signal(config.address.address());
+    }
+
+    let mut tcp_rx_buffer = [0u8; TCP_BUFFER_SIZE];
+    let mut tcp_tx_buffer = [0u8; TCP_BUFFER_SIZE];
+    let mut tcp_socket = TcpSocket::new(stack, &mut tcp_rx_buffer, &mut tcp_tx_buffer);
+
+    let broker = Ipv4Address::from_str("192.168.8.1").unwrap();
+    let rx = &mut [0u8; 256];
+    let tx = &mut [0u8; 768];
+    let mut session = Session::new(
+        ConfigBuilder::new(Buffers::new(rx, tx))
+            .client_id("dropbot")
+            .unwrap(),
+    );
 
     loop {
-        Timer::after(ariel_os::time::Duration::from_secs(1)).await;
+        tcp_socket.abort();
+        tcp_socket.flush().await.ok();
+
+        if let Err(err) = tcp_socket.connect((broker, 1883)).await {
+            error!("mqtt: tcp connect failed: {}", err);
+            Timer::after(ariel_os::time::Duration::from_secs(1)).await;
+            continue;
+        }
+
+        let mut conn = match session.connect(&mut tcp_socket).await {
+            Ok(conn) => conn,
+            Err(err) => {
+                error!("mqtt: failed to connect to broker: {}", err);
+                Timer::after(ariel_os::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+
+        match conn.connect_event() {
+            ConnectEvent::Connected => info!("mqtt: connected to broker"),
+            ConnectEvent::Reconnected => info!("mqtt: resumed broker session"),
+        }
+
+        if let Err(err) = conn.subscribe(&[TopicFilter::new("dio/cane")], &[]).await {
+            error!("mqtt: subscribe failed: {}", err);
+            continue;
+        }
+
+        loop {
+            match conn.recv().await {
+                Ok(message) => info!("topic={}, message={}", message.topic(), str::from_utf8(message.payload()).unwrap()),
+                Err(Error::Disconnected) => {
+                    error!("mqtt: disconnected from broker");
+                    break;
+                }
+                Err(err) => {
+                    error!("mqtt: recv error: {}", err);
+                    break;
+                }
+            }
+            Timer::after(ariel_os::time::Duration::from_secs(1)).await;
+        }
     }
 }
 
@@ -115,27 +172,13 @@ async fn manage_display(pins: pins::I2cPins) -> ! {
         error!("display: initial draw failed: {:?}", Debug2Format(&e));
     }
 
-    // `NetworkStack` is !Send: acquire and keep it inside this task's executor.
-    let stack = net::network_stack().await.unwrap();
-
     loop {
-        stack.wait_config_up().await;
+        let address = NETWORK_STATUS.wait().await;
+        let mut ip_address: String<15> = String::new();
+        let _ = write!(ip_address, "{}", address);
 
-        if let Some(config) = stack.config_v4() {
-            let mut ip_address: String<15> = String::new();
-            let _ = write!(ip_address, "{}", config.address.address());
-
-            if let Err(e) = display
-                .draw_status(DEVICE_ID, ip_address.as_str(), None, true)
-                .await
-            {
-                error!("display: network update failed: {:?}", Debug2Format(&e));
-            }
-        }
-
-        stack.wait_config_down().await;
         if let Err(e) = display
-            .draw_status(DEVICE_ID, "---.---.---.---", None, false)
+            .draw_status(DEVICE_ID, ip_address.as_str(), None, true)
             .await
         {
             error!("display: network update failed: {:?}", Debug2Format(&e));
