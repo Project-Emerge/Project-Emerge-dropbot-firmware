@@ -8,16 +8,15 @@ use ariel_os::reexports::embassy_net::{Ipv4Address, tcp::TcpSocket};
 use embassy_futures::select::{select, Either};
 use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Session, TopicFilter};
 
-use crate::{TCP_BUFFER_SIZE, NETWORK_STATUS, MQTT_PUBLISH, MQTT_RECEIVE};
+use crate::{TCP_BUFFER_SIZE, NETWORK_READY, MQTT_PUBLISH, MQTT_RECEIVE};
 
 #[ariel_os::task]
 pub async fn mqtt_manager() -> ! {
+    // Waits on `NETWORK_READY` rather than `stack.wait_config_up()` directly: the latter
+    // registers a single waker on the network stack, and `network_monitor` already owns
+    // that role. `NETWORK_READY` is a dedicated signal it fills once the stack is up.
+    NETWORK_READY.wait().await;
     let stack = net::network_stack().await.unwrap();
-    stack.wait_config_up().await;
-
-    if let Some(config) = stack.config_v4() {
-        NETWORK_STATUS.signal(config.address.address());
-    }
 
     let mut tcp_rx_buffer = [0u8; TCP_BUFFER_SIZE];
     let mut tcp_tx_buffer = [0u8; TCP_BUFFER_SIZE];

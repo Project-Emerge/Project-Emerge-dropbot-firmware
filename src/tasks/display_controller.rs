@@ -27,22 +27,28 @@ pub async fn manage_display(pins: pins::I2cPins) -> ! {
             }
         }
     }
+    const NO_NETWORK: &str = "---.---.---.---";
+
     if let Err(e) = display
-        .draw_status(DEVICE_ID, "---.---.---.---", None, false)
+        .draw_status(DEVICE_ID, NO_NETWORK, None, false)
         .await
     {
         error!("display: initial draw failed: {:?}", Debug2Format(&e));
     }
 
     loop {
-        let address = NETWORK_STATUS.wait().await;
-        let mut ip_address: String<15> = String::new();
-        let _ = write!(ip_address, "{}", address);
+        let result = match NETWORK_STATUS.wait().await {
+            Some(address) => {
+                let mut ip_address: String<15> = String::new();
+                let _ = write!(ip_address, "{}", address);
+                display
+                    .draw_status(DEVICE_ID, ip_address.as_str(), None, true)
+                    .await
+            }
+            None => display.draw_status(DEVICE_ID, NO_NETWORK, None, false).await,
+        };
 
-        if let Err(e) = display
-            .draw_status(DEVICE_ID, ip_address.as_str(), None, true)
-            .await
-        {
+        if let Err(e) = result {
             error!("display: network update failed: {:?}", Debug2Format(&e));
         }
     }

@@ -11,7 +11,7 @@ use ariel_os::{asynch::spawner, log::info, time::Timer};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use ariel_os::reexports::embassy_net::Ipv4Address;
 
-use crate::tasks::{manage_motor_controller, manage_display, aggregate_telemetry, publish_telemetry, manage_mqtt_client, mqtt_manager};
+use crate::tasks::{manage_motor_controller, manage_display, aggregate_telemetry, publish_telemetry, manage_mqtt_client, mqtt_manager, network_monitor};
 
 pub const TCP_BUFFER_SIZE: usize = 1024;
 pub const DEVICE_ID: &str = match option_env!("DEVICE_ID") {
@@ -19,7 +19,8 @@ pub const DEVICE_ID: &str = match option_env!("DEVICE_ID") {
     None => "UNSET",
 };
 
-pub static NETWORK_STATUS: Signal<CriticalSectionRawMutex, Ipv4Address> = Signal::new();
+pub static NETWORK_STATUS: Signal<CriticalSectionRawMutex, Option<Ipv4Address>> = Signal::new();
+pub static NETWORK_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 pub static MOTOR_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2> = Channel::new();
 pub static BATTERY_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::BatteryTelemetry, 2> = Channel::new();
 pub static IMU_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2> = Channel::new();
@@ -41,6 +42,7 @@ async fn main(peripherals: pins::Peripherals) -> ! {
         .unwrap();
     spawner().spawn(manage_display(peripherals.i2c)).unwrap();
     spawner().spawn(aggregate_telemetry()).unwrap();
+    spawner().spawn(network_monitor()).unwrap();
     spawner().spawn(mqtt_manager()).unwrap();
     spawner().spawn(publish_telemetry()).unwrap();
     spawner().spawn(manage_mqtt_client()).unwrap();
