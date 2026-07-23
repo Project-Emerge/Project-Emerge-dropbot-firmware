@@ -2,7 +2,7 @@ use core::fmt::Write;
 
 use ariel_os::hal;
 use ariel_os::i2c::controller::{Kilohertz, highest_freq_in};
-use ariel_os::log::{error, info, Debug2Format};
+use ariel_os::log::{Debug2Format, error, info};
 use ariel_os::time::Timer;
 use heapless::String;
 
@@ -19,7 +19,9 @@ pub async fn manage_display(pins: pins::I2cPins) -> ! {
     let bus = I2cBus::new(pins.sda, pins.scl, i2c_config);
     let mut display = SD1306Driver::new(bus, 0x3C);
     match display.init().await {
-        Ok(_) => { info!("display: initialized"); }
+        Ok(_) => {
+            info!("display: initialized");
+        }
         Err(e) => {
             error!("display: initialization failed: {:?}", Debug2Format(&e));
             loop {
@@ -45,7 +47,11 @@ pub async fn manage_display(pins: pins::I2cPins) -> ! {
                     .draw_status(DEVICE_ID, ip_address.as_str(), None, true)
                     .await
             }
-            None => display.draw_status(DEVICE_ID, NO_NETWORK, None, false).await,
+            None => {
+                display
+                    .draw_status(DEVICE_ID, NO_NETWORK, None, false)
+                    .await
+            }
         };
 
         if let Err(e) = result {

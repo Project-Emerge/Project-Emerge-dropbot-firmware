@@ -5,11 +5,11 @@ use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer
 use esp_hal::rng;
 use esp_hal::time::Rate;
 
+use crate::MOTOR_TELEMETRY;
 use crate::data;
 use crate::drivers::motor_driver::{DRV8833Driver, types::MotorConfig};
 use crate::pins;
 use crate::traits::MotorController;
-use crate::MOTOR_TELEMETRY;
 
 #[ariel_os::task]
 pub async fn manage_motor_controller(pins: pins::MotorDriverPins) -> ! {
@@ -44,7 +44,8 @@ pub async fn manage_motor_controller(pins: pins::MotorDriverPins) -> ! {
             .send(data::telemetry::MotorTelemetry {
                 left_motor_rpm: 0.5,
                 right_motor_rpm: 0.5,
-            }).await;
+            })
+            .await;
         debug!("motors: left=50% right=50%");
         Timer::after(ariel_os::time::Duration::from_millis(10)).await;
     }

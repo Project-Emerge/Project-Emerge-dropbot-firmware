@@ -3,12 +3,13 @@ use core::str::FromStr;
 
 use ariel_os::log::{debug, error, info};
 use ariel_os::net;
-use ariel_os::time::Timer;
 use ariel_os::reexports::embassy_net::{Ipv4Address, tcp::TcpSocket};
-use embassy_futures::select::{select, Either};
-use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Session, TopicFilter};
+use ariel_os::time::Timer;
+use embassy_futures::select::{Either, select};
+use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session, TopicFilter};
 
-use crate::{TCP_BUFFER_SIZE, NETWORK_READY, MQTT_PUBLISH, MQTT_RECEIVE};
+use crate::data::mqtt::ReceivedMessage;
+use crate::{MQTT_CONNECTION, MQTT_PUBLISH, MQTT_RECEIVE, NETWORK_READY, TCP_BUFFER_SIZE};
 
 #[ariel_os::task]
 pub async fn mqtt_manager() -> ! {
@@ -51,8 +52,12 @@ pub async fn mqtt_manager() -> ! {
         };
 
         match conn.connect_event() {
-            ConnectEvent::Connected => { info!("mqtt: connected to broker"); }
-            ConnectEvent::Reconnected => { info!("mqtt: resumed broker session"); }
+            ConnectEvent::Connected => {
+                info!("mqtt: connected to broker");
+            }
+            ConnectEvent::Reconnected => {
+                info!("mqtt: resumed broker session");
+            }
         }
 
         if let Err(err) = conn.subscribe(&[TopicFilter::new("dio/cane")], &[]).await {
@@ -60,43 +65,43 @@ pub async fn mqtt_manager() -> ! {
             continue;
         }
 
-        crate::MQTT_CONNECTION.signal(());
+        MQTT_CONNECTION.signal(());
 
         // Drop any telemetry queued while we were disconnected/reconnecting so we publish fresh data first.
         while MQTT_PUBLISH.try_receive().is_ok() {}
 
         loop {
             match select(conn.recv(), MQTT_PUBLISH.receive()).await {
-                Either::First(received) => {
-                    match received {
-                        Ok(message) => {
-                            let mut msg = crate::data::mqtt::ReceivedMessage::default();
-                            if write!(msg.topic, "{}", message.topic()).is_err() {
-                                error!("mqtt: received topic too long, dropping message");
-                                continue;
-                            }
-                            if msg.payload.extend_from_slice(message.payload()).is_err() {
-                                error!("mqtt: received payload too large, dropping message");
-                                continue;
-                            }
-                            if MQTT_RECEIVE.try_send(msg).is_err() {
-                                error!("mqtt: receive queue full, dropping message");
-                            }
+                Either::First(received) => match received {
+                    Ok(message) => {
+                        let mut msg = ReceivedMessage::default();
+                        if write!(msg.topic, "{}", message.topic()).is_err() {
+                            error!("mqtt: received topic too long, dropping message");
+                            continue;
                         }
-                        Err(Error::Disconnected) => {
-                            error!("mqtt: disconnected from broker");
-                            break;
+                        if msg.payload.extend_from_slice(message.payload()).is_err() {
+                            error!("mqtt: received payload too large, dropping message");
+                            continue;
                         }
-                        Err(err) => {
-                            error!("mqtt: recv error: {}", err);
-                            break;
+                        if MQTT_RECEIVE.try_send(msg).is_err() {
+                            error!("mqtt: receive queue full, dropping message");
                         }
                     }
-                }
+                    Err(Error::Disconnected) => {
+                        error!("mqtt: disconnected from broker");
+                        break;
+                    }
+                    Err(err) => {
+                        error!("mqtt: recv error: {}", err);
+                        break;
+                    }
+                },
                 Either::Second(msg) => {
-                    let publication = minimq::Publication::new(msg.topic.as_str(), msg.payload.as_slice());
+                    let publication = Publication::new(msg.topic.as_str(), msg.payload.as_slice());
                     match conn.publish(publication).await {
-                        Ok(_) => { debug!("mqtt: published {} bytes", msg.payload.len()); }
+                        Ok(_) => {
+                            debug!("mqtt: published {} bytes", msg.payload.len());
+                        }
                         Err(_) => {
                             error!("mqtt: publish or disconnection failed");
                             break;

@@ -1,17 +1,22 @@
 #![no_main]
 #![no_std]
 
+mod data;
 mod drivers;
 mod pins;
-mod traits;
-mod data;
 mod tasks;
+mod traits;
 
-use ariel_os::{asynch::spawner, log::info, time::Timer};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use ariel_os::reexports::embassy_net::Ipv4Address;
+use ariel_os::{asynch::spawner, log::info, time::Timer};
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
+};
 
-use crate::tasks::{manage_motor_controller, manage_display, aggregate_telemetry, publish_telemetry, manage_mqtt_client, mqtt_manager, network_monitor};
+use crate::tasks::{
+    aggregate_telemetry, manage_display, manage_motor_controller, manage_mqtt_client, mqtt_manager,
+    network_monitor, publish_telemetry,
+};
 
 pub const TCP_BUFFER_SIZE: usize = 1024;
 pub const DEVICE_ID: &str = match option_env!("DEVICE_ID") {
@@ -21,14 +26,27 @@ pub const DEVICE_ID: &str = match option_env!("DEVICE_ID") {
 
 pub static NETWORK_STATUS: Signal<CriticalSectionRawMutex, Option<Ipv4Address>> = Signal::new();
 pub static NETWORK_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-pub static MOTOR_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2> = Channel::new();
-pub static BATTERY_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::BatteryTelemetry, 2> = Channel::new();
-pub static IMU_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2> = Channel::new();
-pub static NETWORK_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::NetworkTelemetry, 2> = Channel::new();
-pub static AGGREGATED_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Telemetry, 1> = Channel::new();
+pub static MOTOR_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2> =
+    Channel::new();
+pub static BATTERY_TELEMETRY: Channel<
+    CriticalSectionRawMutex,
+    data::telemetry::BatteryTelemetry,
+    2,
+> = Channel::new();
+pub static IMU_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2> =
+    Channel::new();
+pub static NETWORK_TELEMETRY: Channel<
+    CriticalSectionRawMutex,
+    data::telemetry::NetworkTelemetry,
+    2,
+> = Channel::new();
+pub static AGGREGATED_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Telemetry, 1> =
+    Channel::new();
 pub static MQTT_CONNECTION: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-pub static MQTT_PUBLISH: Channel<CriticalSectionRawMutex, data::mqtt::PublishMessage, 2> = Channel::new();
-pub static MQTT_RECEIVE: Channel<CriticalSectionRawMutex, data::mqtt::ReceivedMessage, 2> = Channel::new();
+pub static MQTT_PUBLISH: Channel<CriticalSectionRawMutex, data::mqtt::PublishMessage, 2> =
+    Channel::new();
+pub static MQTT_RECEIVE: Channel<CriticalSectionRawMutex, data::mqtt::ReceivedMessage, 2> =
+    Channel::new();
 
 #[ariel_os::task(autostart, peripherals)]
 async fn main(peripherals: pins::Peripherals) -> ! {

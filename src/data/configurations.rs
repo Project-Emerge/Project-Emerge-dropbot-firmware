@@ -16,7 +16,7 @@ pub struct AnchorPosition {
 
 #[derive(Serialize, Deserialize)]
 pub struct AnchorsDisplacementConfiguration {
-    pub anchors: Vec<AnchorPosition, 16>,
+    pub anchors: Vec<AnchorPosition, 8>,
 }
 
 #[derive(Serialize, Deserialize)]

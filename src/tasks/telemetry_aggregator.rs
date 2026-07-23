@@ -1,6 +1,8 @@
-use ariel_os::time::Timer;
 use crate::data;
-use crate::{MOTOR_TELEMETRY, BATTERY_TELEMETRY, IMU_TELEMETRY, NETWORK_TELEMETRY, AGGREGATED_TELEMETRY};
+use crate::{
+    AGGREGATED_TELEMETRY, BATTERY_TELEMETRY, IMU_TELEMETRY, MOTOR_TELEMETRY, NETWORK_TELEMETRY,
+};
+use ariel_os::time::Timer;
 
 #[ariel_os::task]
 pub async fn aggregate_telemetry() -> ! {
