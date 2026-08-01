@@ -3,17 +3,23 @@ use core::fmt::Write;
 use ariel_os::hal;
 use ariel_os::i2c::controller::{Kilohertz, highest_freq_in};
 use ariel_os::log::{Debug2Format, error, info};
+use ariel_os::reexports::embassy_net::Ipv4Address;
 use ariel_os::time::Timer;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use heapless::String;
 
+use crate::DEVICE_ID;
 use crate::drivers::display_driver::SD1306Driver;
 use crate::pins;
 use crate::pins::I2cBus;
 use crate::traits::DisplayController;
-use crate::{DEVICE_ID, NETWORK_STATUS};
 
 #[ariel_os::task]
-pub async fn manage_display(pins: pins::I2cPins) -> ! {
+pub async fn manage_display(
+    pins: pins::I2cPins,
+    network_status: &'static Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
+) -> ! {
     let mut i2c_config = hal::i2c::controller::Config::default();
     i2c_config.frequency = const { highest_freq_in(Kilohertz::kHz(100)..=Kilohertz::kHz(400)) };
     let bus = I2cBus::new(pins.sda, pins.scl, i2c_config);
@@ -39,7 +45,7 @@ pub async fn manage_display(pins: pins::I2cPins) -> ! {
     }
 
     loop {
-        let result = match NETWORK_STATUS.wait().await {
+        let result = match network_status.wait().await {
             Some(address) => {
                 let mut ip_address: String<15> = String::new();
                 let _ = write!(ip_address, "{}", address);

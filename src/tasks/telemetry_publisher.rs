@@ -2,17 +2,25 @@ use core::fmt::Write;
 
 use ariel_os::log::debug;
 use ariel_os::log::error;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Receiver, Sender};
+use embassy_sync::signal::Signal;
 use heapless::String;
 
+use crate::DEVICE_ID;
 use crate::data::mqtt::PublishMessage;
-use crate::{AGGREGATED_TELEMETRY, DEVICE_ID, MQTT_CONNECTION, MQTT_PUBLISH};
+use crate::data::telemetry::Telemetry;
 
 #[ariel_os::task]
-pub async fn publish_telemetry() -> ! {
-    MQTT_CONNECTION.wait().await;
+pub async fn publish_telemetry(
+    mqtt_connection: &'static Signal<CriticalSectionRawMutex, ()>,
+    aggregated_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, Telemetry, 1>,
+    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
+) -> ! {
+    mqtt_connection.wait().await;
 
     loop {
-        let telemetry = AGGREGATED_TELEMETRY.receive().await;
+        let telemetry = aggregated_telemetry_rx.receive().await;
 
         match serde_json::to_vec(&telemetry) {
             Ok(buffer) => {
@@ -31,7 +39,7 @@ pub async fn publish_telemetry() -> ! {
                     payload,
                 };
 
-                match MQTT_PUBLISH.try_send(msg) {
+                match mqtt_publish_tx.try_send(msg) {
                     Ok(_) => {
                         debug!("telemetry: queued {} bytes for publish", payload_len);
                     }

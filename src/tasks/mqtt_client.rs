@@ -1,11 +1,15 @@
 use ariel_os::log::info;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Receiver;
 
-use crate::MQTT_RECEIVE;
+use crate::data::mqtt::ReceivedMessage;
 
 #[ariel_os::task]
-pub async fn manage_mqtt_client() -> ! {
+pub async fn manage_mqtt_client(
+    mqtt_receive_rx: Receiver<'static, CriticalSectionRawMutex, ReceivedMessage, 2>,
+) -> ! {
     loop {
-        let message = MQTT_RECEIVE.receive().await;
+        let message = mqtt_receive_rx.receive().await;
         if let Ok(payload_str) = core::str::from_utf8(message.payload.as_slice()) {
             info!(
                 "mqtt: topic={}, message={}",

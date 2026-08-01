@@ -1,18 +1,22 @@
 use ariel_os::gpio::Output;
 use ariel_os::log::debug;
 use ariel_os::time::Timer;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Sender;
 use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode};
 use esp_hal::rng;
 use esp_hal::time::Rate;
 
-use crate::MOTOR_TELEMETRY;
 use crate::data;
 use crate::drivers::motor_driver::{DRV8833Driver, types::MotorConfig};
 use crate::pins;
 use crate::traits::MotorController;
 
 #[ariel_os::task]
-pub async fn manage_motor_controller(pins: pins::MotorDriverPins) -> ! {
+pub async fn manage_motor_controller(
+    pins: pins::MotorDriverPins,
+    motor_telemetry: Sender<'static, CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2>,
+) -> ! {
     let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(32)).unwrap();
     let mut pwm_module = McPwm::new(pins.pwm_device, clock_cfg);
     pwm_module.operator0.set_timer(&pwm_module.timer0);
@@ -40,7 +44,7 @@ pub async fn manage_motor_controller(pins: pins::MotorDriverPins) -> ! {
 
     loop {
         motor_driver.set_speed(0.5, 0.5).unwrap();
-        MOTOR_TELEMETRY
+        motor_telemetry
             .send(data::telemetry::MotorTelemetry {
                 left_motor_rpm: 0.5,
                 right_motor_rpm: 0.5,

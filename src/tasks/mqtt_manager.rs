@@ -6,17 +6,25 @@ use ariel_os::net;
 use ariel_os::reexports::embassy_net::{Ipv4Address, tcp::TcpSocket};
 use ariel_os::time::Timer;
 use embassy_futures::select::{Either, select};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Receiver, Sender};
+use embassy_sync::signal::Signal;
 use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session, TopicFilter};
 
-use crate::data::mqtt::ReceivedMessage;
-use crate::{MQTT_CONNECTION, MQTT_PUBLISH, MQTT_RECEIVE, NETWORK_READY, TCP_BUFFER_SIZE};
+use crate::TCP_BUFFER_SIZE;
+use crate::data::mqtt::{PublishMessage, ReceivedMessage};
 
 #[ariel_os::task]
-pub async fn mqtt_manager() -> ! {
-    // Waits on `NETWORK_READY` rather than `stack.wait_config_up()` directly: the latter
+pub async fn mqtt_manager(
+    network_ready: &'static Signal<CriticalSectionRawMutex, ()>,
+    mqtt_connection: &'static Signal<CriticalSectionRawMutex, ()>,
+    mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 2>,
+    mqtt_receive_tx: Sender<'static, CriticalSectionRawMutex, ReceivedMessage, 2>,
+) -> ! {
+    // Waits on `network_ready` rather than `stack.wait_config_up()` directly: the latter
     // registers a single waker on the network stack, and `network_monitor` already owns
-    // that role. `NETWORK_READY` is a dedicated signal it fills once the stack is up.
-    NETWORK_READY.wait().await;
+    // that role. `network_ready` is a dedicated signal it fills once the stack is up.
+    network_ready.wait().await;
     let stack = net::network_stack().await.unwrap();
 
     let mut tcp_rx_buffer = [0u8; TCP_BUFFER_SIZE];
@@ -65,13 +73,13 @@ pub async fn mqtt_manager() -> ! {
             continue;
         }
 
-        MQTT_CONNECTION.signal(());
+        mqtt_connection.signal(());
 
         // Drop any telemetry queued while we were disconnected/reconnecting so we publish fresh data first.
-        while MQTT_PUBLISH.try_receive().is_ok() {}
+        while mqtt_publish_rx.try_receive().is_ok() {}
 
         loop {
-            match select(conn.recv(), MQTT_PUBLISH.receive()).await {
+            match select(conn.recv(), mqtt_publish_rx.receive()).await {
                 Either::First(received) => match received {
                     Ok(message) => {
                         let mut msg = ReceivedMessage::default();
@@ -83,7 +91,7 @@ pub async fn mqtt_manager() -> ! {
                             error!("mqtt: received payload too large, dropping message");
                             continue;
                         }
-                        if MQTT_RECEIVE.try_send(msg).is_err() {
+                        if mqtt_receive_tx.try_send(msg).is_err() {
                             error!("mqtt: receive queue full, dropping message");
                         }
                     }

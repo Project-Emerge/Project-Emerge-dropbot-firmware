@@ -1,11 +1,27 @@
-use crate::data;
-use crate::{
-    AGGREGATED_TELEMETRY, BATTERY_TELEMETRY, IMU_TELEMETRY, MOTOR_TELEMETRY, NETWORK_TELEMETRY,
-};
 use ariel_os::time::Timer;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Receiver, Sender};
+
+use crate::data;
 
 #[ariel_os::task]
-pub async fn aggregate_telemetry() -> ! {
+pub async fn aggregate_telemetry(
+    motor_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2>,
+    battery_telemetry_rx: Receiver<
+        'static,
+        CriticalSectionRawMutex,
+        data::telemetry::BatteryTelemetry,
+        2,
+    >,
+    imu_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2>,
+    network_telemetry_rx: Receiver<
+        'static,
+        CriticalSectionRawMutex,
+        data::telemetry::NetworkTelemetry,
+        2,
+    >,
+    aggregated_telemetry_tx: Sender<'static, CriticalSectionRawMutex, data::telemetry::Telemetry, 1>,
+) -> ! {
     let mut motor_telemetry = data::telemetry::MotorTelemetry {
         left_motor_rpm: 0.0,
         right_motor_rpm: 0.0,
@@ -39,16 +55,16 @@ pub async fn aggregate_telemetry() -> ! {
     };
 
     loop {
-        if let Ok(motor) = MOTOR_TELEMETRY.try_receive() {
+        if let Ok(motor) = motor_telemetry_rx.try_receive() {
             motor_telemetry = motor;
         }
-        if let Ok(battery) = BATTERY_TELEMETRY.try_receive() {
+        if let Ok(battery) = battery_telemetry_rx.try_receive() {
             battery_telemetry = battery;
         }
-        if let Ok(imu) = IMU_TELEMETRY.try_receive() {
+        if let Ok(imu) = imu_telemetry_rx.try_receive() {
             imu_telemetry = imu;
         }
-        if let Ok(network) = NETWORK_TELEMETRY.try_receive() {
+        if let Ok(network) = network_telemetry_rx.try_receive() {
             network_telemetry = network;
         }
 
@@ -59,7 +75,7 @@ pub async fn aggregate_telemetry() -> ! {
             network_telemetry: network_telemetry.clone(), // Clone the network telemetry to avoid ownership issues
         };
 
-        AGGREGATED_TELEMETRY.send(telemetry).await;
+        aggregated_telemetry_tx.send(telemetry).await;
 
         Timer::after(ariel_os::time::Duration::from_secs(1)).await;
     }
