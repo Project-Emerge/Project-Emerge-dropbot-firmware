@@ -2,6 +2,7 @@
 #![no_std]
 
 mod data;
+mod device_id;
 mod drivers;
 mod pins;
 mod tasks;
@@ -20,10 +21,6 @@ use crate::tasks::{
 };
 
 pub const TCP_BUFFER_SIZE: usize = 1024;
-pub const DEVICE_ID: &str = match option_env!("DEVICE_ID") {
-    Some(device_id) => device_id,
-    None => "UNSET",
-};
 /// Version this firmware build identifies as to the OTA server; see `.cargo/config.toml`.
 pub const FIRMWARE_VERSION: &str = ariel_os::config::str_from_env_or!(
     "FIRMWARE_VERSION",
@@ -66,10 +63,11 @@ static OTA_STATUS: Watch<CriticalSectionRawMutex, data::ota::OtaStatus, 2> = Wat
 
 #[ariel_os::spawner(autostart, peripherals)]
 fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
+    let device_id = device_id::init();
     info!(
         "firmware: started on {} device_id={}",
         ariel_os::buildinfo::BOARD,
-        DEVICE_ID
+        device_id
     );
 
     let mut latch_pin = Output::new(peripherals.power_management.kill, ariel_os::gpio::Level::High);
@@ -85,6 +83,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
     spawner
         .spawn(manage_display(
             peripherals.i2c,
+            device_id,
             &NETWORK_STATUS,
             OTA_STATUS.receiver().unwrap(),
         ))
@@ -111,6 +110,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .unwrap();
     spawner
         .spawn(publish_telemetry(
+            device_id,
             &MQTT_CONNECTION,
             AGGREGATED_TELEMETRY.receiver(),
             MQTT_PUBLISH.sender(),

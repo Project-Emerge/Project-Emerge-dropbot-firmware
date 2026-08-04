@@ -7,12 +7,12 @@ use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::signal::Signal;
 use heapless::String;
 
-use crate::DEVICE_ID;
 use crate::data::mqtt::PublishMessage;
 use crate::data::telemetry::Telemetry;
 
 #[ariel_os::task]
 pub async fn publish_telemetry(
+    device_id: &'static str,
     mqtt_connection: &'static Signal<CriticalSectionRawMutex, ()>,
     aggregated_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, Telemetry, 1>,
     mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
@@ -25,7 +25,7 @@ pub async fn publish_telemetry(
         match serde_json::to_vec(&telemetry) {
             Ok(buffer) => {
                 let mut topic_buf = String::<64>::new();
-                let _ = write!(topic_buf, "/telemetry/{}", DEVICE_ID);
+                let _ = write!(topic_buf, "/telemetry/{}", device_id);
 
                 let mut payload = heapless::Vec::<u8, 1024>::new();
                 if payload.extend_from_slice(buffer.as_slice()).is_err() {

@@ -16,13 +16,14 @@ use crate::drivers::display_driver::SD1306Driver;
 use crate::pins;
 use crate::pins::I2cBus;
 use crate::traits::DisplayController;
-use crate::{DEVICE_ID, FIRMWARE_VERSION};
+use crate::FIRMWARE_VERSION;
 
 const NO_NETWORK: &str = "---.---.---.---";
 
 #[ariel_os::task]
 pub async fn manage_display(
     pins: pins::I2cPins,
+    device_id: &'static str,
     network_status: &'static Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
     mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
 ) -> ! {
@@ -47,7 +48,7 @@ pub async fn manage_display(
     let mut address: Option<Ipv4Address> = None;
     let mut ota_active = false;
 
-    if let Err(e) = draw_status(&mut display, address).await {
+    if let Err(e) = draw_status(&mut display, device_id, address).await {
         error!("display: initial draw failed: {:?}", Debug2Format(&e));
     }
 
@@ -60,12 +61,12 @@ pub async fn manage_display(
                 if ota_active {
                     continue;
                 }
-                draw_status(&mut display, address).await
+                draw_status(&mut display, device_id, address).await
             }
             Either::Second(status) => {
                 ota_active = status.is_active();
                 match status {
-                    OtaStatus::Idle => draw_status(&mut display, address).await,
+                    OtaStatus::Idle => draw_status(&mut display, device_id, address).await,
                     OtaStatus::Preparing => {
                         display
                             .draw_firmware_update("Loading new firmware...", None)
@@ -93,6 +94,7 @@ pub async fn manage_display(
 
 async fn draw_status<D: DisplayController>(
     display: &mut D,
+    device_id: &str,
     address: Option<Ipv4Address>,
 ) -> Result<(), D::Error> {
     match address {
@@ -100,12 +102,12 @@ async fn draw_status<D: DisplayController>(
             let mut ip_address: String<15> = String::new();
             let _ = write!(ip_address, "{}", address);
             display
-                .draw_status(DEVICE_ID, ip_address.as_str(), None, true, FIRMWARE_VERSION)
+                .draw_status(device_id, ip_address.as_str(), None, true, FIRMWARE_VERSION)
                 .await
         }
         None => {
             display
-                .draw_status(DEVICE_ID, NO_NETWORK, None, false, FIRMWARE_VERSION)
+                .draw_status(device_id, NO_NETWORK, None, false, FIRMWARE_VERSION)
                 .await
         }
     }
