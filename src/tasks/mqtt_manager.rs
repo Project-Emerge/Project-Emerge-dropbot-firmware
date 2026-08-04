@@ -9,6 +9,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Receiver as WatchReceiver;
 use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session, TopicFilter};
 
 use crate::TCP_BUFFER_SIZE;
@@ -16,22 +17,22 @@ use crate::data::mqtt::{PublishMessage, ReceivedMessage};
 
 #[ariel_os::task]
 pub async fn mqtt_manager(
-    network_ready: &'static Signal<CriticalSectionRawMutex, ()>,
+    mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
     mqtt_connection: &'static Signal<CriticalSectionRawMutex, ()>,
     mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 2>,
     mqtt_receive_tx: Sender<'static, CriticalSectionRawMutex, ReceivedMessage, 2>,
 ) -> ! {
     // Waits on `network_ready` rather than `stack.wait_config_up()` directly: the latter
     // registers a single waker on the network stack, and `network_monitor` already owns
-    // that role. `network_ready` is a dedicated signal it fills once the stack is up.
-    network_ready.wait().await;
+    // that role. `network_ready` is a dedicated watch it fills once the stack is up.
+    network_ready.get().await;
     let stack = net::network_stack().await.unwrap();
 
     let mut tcp_rx_buffer = [0u8; TCP_BUFFER_SIZE];
     let mut tcp_tx_buffer = [0u8; TCP_BUFFER_SIZE];
     let mut tcp_socket = TcpSocket::new(stack, &mut tcp_rx_buffer, &mut tcp_tx_buffer);
 
-    let broker = Ipv4Address::from_str("192.168.8.1").unwrap();
+    let broker = Ipv4Address::from_str("192.168.8.168").unwrap();
     let rx = &mut [0u8; 256];
     let tx = &mut [0u8; 768];
     let mut session = Session::new(
@@ -68,7 +69,13 @@ pub async fn mqtt_manager(
             }
         }
 
-        if let Err(err) = conn.subscribe(&[TopicFilter::new("dio/cane")], &[]).await {
+        if let Err(err) = conn
+            .subscribe(
+                &[TopicFilter::new("dio/cane"), TopicFilter::new("dio/ota/check")],
+                &[],
+            )
+            .await
+        {
             error!("mqtt: subscribe failed: {}", err);
             continue;
         }

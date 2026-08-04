@@ -3,6 +3,11 @@ include = ["../build/imports/ariel-os/ariel-os-cargo.toml"]
 [env]
 CONFIG_WIFI_NETWORK = "your_wifi_network"
 CONFIG_WIFI_PASSWORD = "your_wifi_password"
+# Hostname or IP address of the OTA update server (see src/tasks/ota_manager.rs).
+OTA_SERVER_HOST = "192.168.8.168"
+# Version string this firmware build identifies as; compared against the OTA server's
+# manifest to decide whether an update should be installed.
+FIRMWARE_VERSION = "0.1.0"
 # Keep application lifecycle events visible while suppressing noisy networking internals.
 # Set this to `debug` temporarily when investigating firmware behavior.
 DEFMT_LOG = { value = "debug,esp_radio=debug,embassy_net=debug", force = true }

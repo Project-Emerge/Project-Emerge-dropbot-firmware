@@ -8,10 +8,10 @@
   "rust-analyzer.cargo.extraEnv": {
     "CARGO_BUILD_TARGET": "riscv32imac-unknown-none-elf",
     "CARGO_TARGET_DIR": "./build/bin/dropbot/cargo",
-    "CARGO_TARGET_RISCV32IMAC_UNKNOWN_NONE_ELF_RUNNER": "espflash flash --monitor --log-format defmt",
+    "CARGO_TARGET_RISCV32IMAC_UNKNOWN_NONE_ELF_RUNNER": "cargo espflash flash --monitor --log-format defmt",
     "CARGO_TARGET_RISCV32IMAC_UNKNOWN_NONE_ELF_RUSTFLAGS": "--cfg context=\"dropbot\" --cfg context=\"esp32c6\" --cfg context=\"esp\" --cfg context=\"ariel-os\" --cfg context=\"default\" -Clink-arg=-Tlinkall.x --cfg stable -Cembed-bitcode=yes -Clto=fat -Ccodegen-units=1 -Clink-arg=-Tdefmt.x -C force-frame-pointers --cfg context=\"riscv\" -Clink-arg=-Tisr_stack.x -Clink-arg=-Tlinkme-region-alias.x -Clink-arg=-Tlinkme.x",
     "CONFIG_BOARD": "dropbot",
-    "CONFIG_EXECUTOR_STACKSIZE": "8192",
+    "CONFIG_EXECUTOR_STACKSIZE": "65536",
     "CONFIG_HEAPSIZE": "73728",
     "CONFIG_ISR_STACKSIZE": "32768",
     "CONFIG_WIFI_NETWORK": "test-wifi",

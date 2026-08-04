@@ -35,5 +35,14 @@ pub trait DisplayController {
         ip_address: &str,
         rssi_dbm: Option<i32>,
         network_connected: bool,
+        firmware_version: &str,
+    ) -> Result<(), Self::Error>;
+    /// Draws the firmware-update screen, taking the display over for the duration of an
+    /// OTA update. `message` is word-wrapped to fit. `percent` draws a progress bar when
+    /// the transfer size is known; pass `None` for an indeterminate update.
+    async fn draw_firmware_update(
+        &mut self,
+        message: &str,
+        percent: Option<u8>,
     ) -> Result<(), Self::Error>;
 }

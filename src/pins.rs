@@ -48,6 +48,11 @@ ariel_os::hal::define_peripherals!(I2cPins {
     scl: GPIO22,
 });
 
+#[cfg(context = "esp32c6")]
+ariel_os::hal::define_peripherals!(OtaPeripherals {
+    flash: FLASH,
+});
+
 ariel_os::hal::group_peripherals!(Peripherals {
     motor_driver: MotorDriverPins,
     uwb: UwbPins,
@@ -55,4 +60,5 @@ ariel_os::hal::group_peripherals!(Peripherals {
     power_management: PowerManagementPins,
     expansion: ExpansionPins,
     i2c: I2cPins,
+    ota: OtaPeripherals,
 });

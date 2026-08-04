@@ -2,6 +2,7 @@ use ariel_os::net;
 use ariel_os::reexports::embassy_net::Ipv4Address;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Sender as WatchSender;
 
 /// Sole task allowed to wait on the network stack's config up/down state:
 /// `Stack::wait_config_up`/`wait_config_down` register a single waker, so a second
@@ -10,7 +11,7 @@ use embassy_sync::signal::Signal;
 #[ariel_os::task]
 pub async fn network_monitor(
     network_status: &'static Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
-    network_ready: &'static Signal<CriticalSectionRawMutex, ()>,
+    network_ready: WatchSender<'static, CriticalSectionRawMutex, (), 2>,
 ) -> ! {
     let stack = net::network_stack().await.unwrap();
 
@@ -19,7 +20,7 @@ pub async fn network_monitor(
         if let Some(config) = stack.config_v4() {
             network_status.signal(Some(config.address.address()));
         }
-        network_ready.signal(());
+        network_ready.send(());
 
         stack.wait_config_down().await;
         network_status.signal(None);
