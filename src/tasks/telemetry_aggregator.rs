@@ -75,7 +75,7 @@ pub async fn aggregate_telemetry(
             network_telemetry: network_telemetry.clone(), // Clone the network telemetry to avoid ownership issues
         };
 
-        aggregated_telemetry_tx.send(telemetry).await;
+        let _ = aggregated_telemetry_tx.try_send(telemetry);
 
         Timer::after(ariel_os::time::Duration::from_secs(1)).await;
     }

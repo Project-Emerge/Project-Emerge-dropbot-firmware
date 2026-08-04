@@ -74,8 +74,8 @@ where
             in1_pin.set_duty_cycle_percent((speed * 100.0) as u8)?;
             in2_pin.set_duty_cycle_fully_off()?;
         } else if speed < 0.0 {
-            in1_pin.set_duty_cycle_percent((-speed * 100.0) as u8)?;
-            in2_pin.set_duty_cycle_percent(100)?;
+            in1_pin.set_duty_cycle_fully_off()?;
+            in2_pin.set_duty_cycle_percent((-speed * 100.0) as u8)?;
         } else {
             in1_pin.set_duty_cycle_percent(0)?;
             in2_pin.set_duty_cycle_percent(0)?;

@@ -14,6 +14,7 @@ use ariel_os::{asynch::spawner, log::info, time::Timer};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal, watch::Watch,
 };
+use embedded_hal::digital::OutputPin;
 
 use crate::tasks::{
     aggregate_telemetry, manage_display, manage_motor_controller, manage_mqtt_client, manage_ota,

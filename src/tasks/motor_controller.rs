@@ -5,7 +5,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Sender;
 use embassy_sync::watch::Receiver as WatchReceiver;
 use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode};
-use esp_hal::rng;
 use esp_hal::time::Rate;
 
 use crate::data;
@@ -42,6 +41,8 @@ pub async fn manage_motor_controller(
         PwmPinConfig::UP_ACTIVE_HIGH,
     );
     let sleep_pin = Output::new(pins.sleep, ariel_os::gpio::Level::High);
+    // DRV8833 tWAKE: up to 1ms needed after nSLEEP goes high before the H-bridge is operational.
+    Timer::after(ariel_os::time::Duration::from_millis(1)).await;
     let mut motor_driver =
         DRV8833Driver::new(ain1, ain2, bin1, bin2, sleep_pin, MotorConfig::default());
 
