@@ -21,12 +21,9 @@ use crate::tasks::{
 };
 
 pub const TCP_BUFFER_SIZE: usize = 1024;
-/// Version this firmware build identifies as to the OTA server; see `.cargo/config.toml`.
-pub const FIRMWARE_VERSION: &str = ariel_os::config::str_from_env_or!(
-    "FIRMWARE_VERSION",
-    "0.0.0",
-    "semantic version of this firmware build, compared against the OTA server's manifest",
-);
+/// Version this firmware build identifies as to the OTA server; taken from `Cargo.toml`'s
+/// `package.version`, which Cargo exposes at build time via `CARGO_PKG_VERSION`.
+pub const FIRMWARE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Wiring between tasks: each primitive lives here, scoped to this module, and is handed out
 // as an explicit `spawn(...)` argument below rather than imported ambiently via `crate::FOO`.
