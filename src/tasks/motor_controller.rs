@@ -51,8 +51,8 @@ pub async fn manage_motor_controller(
         // motors and hold them de-energized for its whole duration, so the robot cannot
         // drive off unattended across the reboot. `set_speed` drives SLEEP high again, so
         // a failed update needs no explicit wake-up here.
-        if let Some(status) = ota_status.try_changed() {
-            if status.is_active() {
+        if let Some(status) = ota_status.try_changed()
+            && status.is_active() {
                 if let Err(e) = motor_driver.stop().and_then(|()| motor_driver.sleep()) {
                     error!("motors: shutdown for OTA failed: {:?}", Debug2Format(&e));
                 }
@@ -61,7 +61,6 @@ pub async fn manage_motor_controller(
                 while ota_status.changed().await.is_active() {}
                 info!("motors: OTA update ended, resuming");
             }
-        }
 
         motor_driver.set_speed(0.5, 0.5).unwrap();
         motor_telemetry

@@ -101,13 +101,12 @@ pub async fn manage_ota(
         let mut partition_table_buf = [0u8; PARTITION_TABLE_MAX_LEN];
         match OtaUpdater::new(&mut flash, &mut partition_table_buf) {
             Ok(mut ota) => {
-                if let Ok(state) = ota.current_ota_state() {
-                    if matches!(state, OtaImageState::New | OtaImageState::PendingVerify)
+                if let Ok(state) = ota.current_ota_state()
+                    && matches!(state, OtaImageState::New | OtaImageState::PendingVerify)
                         && ota.set_current_ota_state(OtaImageState::Valid).is_ok()
                     {
                         info!("ota: confirmed current firmware slot as valid");
                     }
-                }
             }
             Err(_) => {
                 error!(

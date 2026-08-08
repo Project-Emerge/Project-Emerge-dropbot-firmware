@@ -2,7 +2,7 @@ use core::fmt::Write;
 use core::str::FromStr;
 
 use ariel_os::log::{debug, error, info};
-use ariel_os::net;
+use ariel_os::{config, net};
 use ariel_os::reexports::embassy_net::{Ipv4Address, tcp::TcpSocket};
 use ariel_os::time::Timer;
 use embassy_futures::select::{Either, select};
@@ -13,6 +13,12 @@ use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session, 
 
 use crate::TCP_BUFFER_SIZE;
 use crate::data::mqtt::{BrokerStatus, PublishMessage, ReceivedMessage};
+
+const MQTT_SERVER_HOST: &str = config::str_from_env_or!(
+    "MQTT_SERVER_HOST",
+    "192.168.8.1",
+    "hostname or IP address of the MQTT server",
+);
 
 #[ariel_os::task]
 pub async fn mqtt_manager(
@@ -33,7 +39,7 @@ pub async fn mqtt_manager(
     let mut tcp_tx_buffer = [0u8; TCP_BUFFER_SIZE];
     let mut tcp_socket = TcpSocket::new(stack, &mut tcp_rx_buffer, &mut tcp_tx_buffer);
 
-    let broker = Ipv4Address::from_str("192.168.8.168").unwrap();
+    let broker = Ipv4Address::from_str(MQTT_SERVER_HOST).unwrap();
     let rx = &mut [0u8; 256];
     let tx = &mut [0u8; 768];
     let mut session = Session::new(
