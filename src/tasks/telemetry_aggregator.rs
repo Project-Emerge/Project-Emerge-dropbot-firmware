@@ -31,6 +31,7 @@ pub async fn aggregate_telemetry(
         current: 0.0,
         temperature: 0.0,
         is_charging: false,
+        state_of_charge: 0,
     };
     let mut imu_telemetry = data::telemetry::IMUTelemetry {
         accelerometer: data::telemetry::AccelerometerTelemetry {

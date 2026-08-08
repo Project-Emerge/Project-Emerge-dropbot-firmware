@@ -8,20 +8,21 @@ use ariel_os::time::Timer;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
-use embassy_sync::signal::Signal;
-use embassy_sync::watch::Receiver as WatchReceiver;
+use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session, TopicFilter};
 
 use crate::TCP_BUFFER_SIZE;
-use crate::data::mqtt::{PublishMessage, ReceivedMessage};
+use crate::data::mqtt::{BrokerStatus, PublishMessage, ReceivedMessage};
 
 #[ariel_os::task]
 pub async fn mqtt_manager(
     mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
-    mqtt_connection: &'static Signal<CriticalSectionRawMutex, ()>,
+    broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 2>,
     mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 2>,
     mqtt_receive_tx: Sender<'static, CriticalSectionRawMutex, ReceivedMessage, 2>,
 ) -> ! {
+    broker_status.send(BrokerStatus::Disconnected);
+
     // Waits on `network_ready` rather than `stack.wait_config_up()` directly: the latter
     // registers a single waker on the network stack, and `network_monitor` already owns
     // that role. `network_ready` is a dedicated watch it fills once the stack is up.
@@ -80,7 +81,7 @@ pub async fn mqtt_manager(
             continue;
         }
 
-        mqtt_connection.signal(());
+        broker_status.send(BrokerStatus::Connected);
 
         // Drop any telemetry queued while we were disconnected/reconnecting so we publish fresh data first.
         while mqtt_publish_rx.try_receive().is_ok() {}
@@ -125,5 +126,9 @@ pub async fn mqtt_manager(
                 }
             }
         }
+
+        // Any of the `break`s above means the session is gone and the outer loop is about
+        // to reconnect.
+        broker_status.send(BrokerStatus::Disconnected);
     }
 }

@@ -8,17 +8,21 @@ mod pins;
 mod tasks;
 mod traits;
 
-use ariel_os::gpio::Output;
+use ariel_os::hal;
+use ariel_os::i2c::controller::{Kilohertz, highest_freq_in};
+use ariel_os::log::info;
 use ariel_os::reexports::embassy_net::Ipv4Address;
-use ariel_os::{asynch::spawner, log::info, time::Timer};
+use ariel_os::reexports::static_cell::StaticCell;
 use embassy_sync::{
-    blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal, watch::Watch,
+    blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex, signal::Signal,
+    watch::Watch,
 };
-use embedded_hal::digital::OutputPin;
 
+use crate::drivers::shared_i2c::{BoardI2cBus, BoardI2cDevice, SharedI2c};
+use crate::pins::I2cBus;
 use crate::tasks::{
     aggregate_telemetry, manage_display, manage_motor_controller, manage_mqtt_client, manage_ota,
-    mqtt_manager, network_monitor, publish_telemetry,
+    manage_power_button, monitor_battery, mqtt_manager, network_monitor, publish_telemetry,
 };
 
 pub const TCP_BUFFER_SIZE: usize = 1024;
@@ -48,7 +52,10 @@ static NETWORK_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Netw
     Channel::new();
 static AGGREGATED_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Telemetry, 1> =
     Channel::new();
-static MQTT_CONNECTION: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+// Whether the MQTT session is up. A `Watch` because it has two consumers: the telemetry
+// publisher, which holds off until the first connection, and the display, which shows the
+// broker state on its network page.
+static BROKER_STATUS: Watch<CriticalSectionRawMutex, data::mqtt::BrokerStatus, 2> = Watch::new();
 static MQTT_PUBLISH: Channel<CriticalSectionRawMutex, data::mqtt::PublishMessage, 2> =
     Channel::new();
 static MQTT_RECEIVE: Channel<CriticalSectionRawMutex, data::mqtt::ReceivedMessage, 2> =
@@ -58,6 +65,17 @@ static OTA_CHECK_REQUEST: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 // two consumers, the display (which shows a progress screen) and the motor controller
 // (which cuts the motors for the duration of the update).
 static OTA_STATUS: Watch<CriticalSectionRawMutex, data::ota::OtaStatus, 2> = Watch::new();
+// Presses of the power button, forwarded to the display: short ones page through the menu,
+// a long one is the announcement that the board is cutting its own supply.
+static BUTTON_EVENTS: Channel<CriticalSectionRawMutex, data::button::ButtonEvent, 2> =
+    Channel::new();
+// What the battery charger last reported. Only the display consumes it; the telemetry side
+// of the same readings goes out over `BATTERY_TELEMETRY`.
+static CHARGER_STATUS: Watch<CriticalSectionRawMutex, data::battery::ChargerStatus, 1> =
+    Watch::new();
+// The board's single I2C bus, built here because it outlives -- and is shared by -- both of
+// the tasks that talk on it.
+static I2C_BUS: StaticCell<BoardI2cBus> = StaticCell::new();
 
 #[ariel_os::spawner(autostart, peripherals)]
 fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
@@ -68,9 +86,24 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         device_id
     );
 
-    let mut latch_pin = Output::new(peripherals.power_management.kill, ariel_os::gpio::Level::High);
-    latch_pin.set_high();
+    // The display and the battery charger share one bus, so it is created here and handed
+    // to each of them as a `SharedI2c` handle rather than owned by either.
+    let mut i2c_config = hal::i2c::controller::Config::default();
+    i2c_config.frequency = const { highest_freq_in(Kilohertz::kHz(100)..=Kilohertz::kHz(400)) };
+    let i2c_bus: &'static BoardI2cBus = I2C_BUS.init(Mutex::new(I2cBus::new(
+        peripherals.i2c.sda,
+        peripherals.i2c.scl,
+        i2c_config,
+    )));
 
+    // Spawned first: it holds the power latch that keeps the board alive once the user lets
+    // go of the button.
+    spawner
+        .spawn(manage_power_button(
+            peripherals.power_management,
+            BUTTON_EVENTS.sender(),
+        ))
+        .unwrap();
     spawner
         .spawn(manage_motor_controller(
             peripherals.motor_driver,
@@ -80,10 +113,20 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .unwrap();
     spawner
         .spawn(manage_display(
-            peripherals.i2c,
+            BoardI2cDevice::new(i2c_bus),
             device_id,
             &NETWORK_STATUS,
             OTA_STATUS.receiver().unwrap(),
+            BUTTON_EVENTS.receiver(),
+            BROKER_STATUS.receiver().unwrap(),
+            CHARGER_STATUS.receiver().unwrap(),
+        ))
+        .unwrap();
+    spawner
+        .spawn(monitor_battery(
+            SharedI2c::new(i2c_bus),
+            BATTERY_TELEMETRY.sender(),
+            CHARGER_STATUS.sender(),
         ))
         .unwrap();
     spawner
@@ -101,7 +144,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
     spawner
         .spawn(mqtt_manager(
             NETWORK_READY.receiver().unwrap(),
-            &MQTT_CONNECTION,
+            BROKER_STATUS.sender(),
             MQTT_PUBLISH.receiver(),
             MQTT_RECEIVE.sender(),
         ))
@@ -109,7 +152,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
     spawner
         .spawn(publish_telemetry(
             device_id,
-            &MQTT_CONNECTION,
+            BROKER_STATUS.receiver().unwrap(),
             AGGREGATED_TELEMETRY.receiver(),
             MQTT_PUBLISH.sender(),
         ))

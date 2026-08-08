@@ -4,20 +4,25 @@ use ariel_os::log::debug;
 use ariel_os::log::error;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
-use embassy_sync::signal::Signal;
+use embassy_sync::watch::Receiver as WatchReceiver;
 use heapless::String;
 
-use crate::data::mqtt::PublishMessage;
+use crate::data::mqtt::{BrokerStatus, PublishMessage};
 use crate::data::telemetry::Telemetry;
 
 #[ariel_os::task]
 pub async fn publish_telemetry(
     device_id: &'static str,
-    mqtt_connection: &'static Signal<CriticalSectionRawMutex, ()>,
+    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 2>,
     aggregated_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, Telemetry, 1>,
     mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
 ) -> ! {
-    mqtt_connection.wait().await;
+    // Hold off until the broker session comes up the first time. Later drops are not
+    // waited on: the manager drains its queue on reconnect, so anything queued meanwhile
+    // would be stale by the time it could be sent.
+    while broker_status.get().await != BrokerStatus::Connected {
+        broker_status.changed().await;
+    }
 
     loop {
         let telemetry = aggregated_telemetry_rx.receive().await;

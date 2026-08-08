@@ -18,6 +18,9 @@ embedded-graphics = "0.8.2"
 heapless = { version = "0.8.0", features = ["serde"] }
 # Board-specific dependencies
 ssd1306-embassy-async = "0.1.0"
+# Default features only: the crate's `embassy` feature pulls in `cortex-m`, which does not
+# build for the RISC-V esp32c6.
+bq25887 = { version = "0.1.11", default-features = false }
 minimq = { version = "0.13.0" }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
