@@ -23,7 +23,7 @@ const MQTT_SERVER_HOST: &str = config::str_from_env_or!(
 #[ariel_os::task]
 pub async fn mqtt_manager(
     mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
-    broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 2>,
+    broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
     mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 2>,
     mqtt_receive_tx: Sender<'static, CriticalSectionRawMutex, ReceivedMessage, 2>,
 ) -> ! {
@@ -41,7 +41,10 @@ pub async fn mqtt_manager(
 
     let broker = Ipv4Address::from_str(MQTT_SERVER_HOST).unwrap();
     let rx = &mut [0u8; 256];
-    let tx = &mut [0u8; 768];
+    // The transmit buffer has to hold a whole outgoing packet, and the largest one this
+    // firmware sends by a wide margin is the telemetry payload -- which carries the IMU's
+    // nine axes twice over, raw and filtered.
+    let tx = &mut [0u8; 1536];
     let mut session = Session::new(
         ConfigBuilder::new(Buffers::new(rx, tx))
             .client_id("dropbot")

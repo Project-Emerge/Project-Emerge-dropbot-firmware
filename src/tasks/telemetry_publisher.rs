@@ -13,7 +13,7 @@ use crate::data::telemetry::Telemetry;
 #[ariel_os::task]
 pub async fn publish_telemetry(
     device_id: &'static str,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 2>,
+    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
     aggregated_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, Telemetry, 1>,
     mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
 ) -> ! {

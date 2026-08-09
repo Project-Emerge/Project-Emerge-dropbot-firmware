@@ -22,7 +22,8 @@ use crate::drivers::shared_i2c::{BoardI2cBus, BoardI2cDevice, SharedI2c};
 use crate::pins::I2cBus;
 use crate::tasks::{
     aggregate_telemetry, manage_display, manage_motor_controller, manage_mqtt_client, manage_ota,
-    manage_power_button, monitor_battery, mqtt_manager, network_monitor, publish_telemetry,
+    manage_power_button, monitor_battery, monitor_imu, mqtt_manager, network_monitor,
+    publish_imu_stream, publish_telemetry,
 };
 
 pub const TCP_BUFFER_SIZE: usize = 1024;
@@ -48,14 +49,21 @@ static BATTERY_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Batt
     Channel::new();
 static IMU_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2> =
     Channel::new();
+// The IMU's high-rate path, separate from `IMU_TELEMETRY` above: this one carries every
+// sample the fusion filter needs to dead-reckon between UWB range fixes, straight to its own
+// MQTT topic, while `IMU_TELEMETRY` trickles the same payload into the once-a-second status
+// bundle. Deliberately shallow -- a stream sample is only worth sending while it is current,
+// so a backed-up queue should drop samples rather than accumulate stale ones.
+static IMU_STREAM: Channel<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2> =
+    Channel::new();
 static NETWORK_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::NetworkTelemetry, 2> =
     Channel::new();
 static AGGREGATED_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Telemetry, 1> =
     Channel::new();
-// Whether the MQTT session is up. A `Watch` because it has two consumers: the telemetry
-// publisher, which holds off until the first connection, and the display, which shows the
-// broker state on its network page.
-static BROKER_STATUS: Watch<CriticalSectionRawMutex, data::mqtt::BrokerStatus, 2> = Watch::new();
+// Whether the MQTT session is up. A `Watch` because it has three consumers: the telemetry
+// publisher and the IMU stream publisher, which both hold off until the first connection,
+// and the display, which shows the broker state on its network page.
+static BROKER_STATUS: Watch<CriticalSectionRawMutex, data::mqtt::BrokerStatus, 3> = Watch::new();
 static MQTT_PUBLISH: Channel<CriticalSectionRawMutex, data::mqtt::PublishMessage, 2> =
     Channel::new();
 static MQTT_RECEIVE: Channel<CriticalSectionRawMutex, data::mqtt::ReceivedMessage, 2> =
@@ -86,8 +94,9 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         device_id
     );
 
-    // The display and the battery charger share one bus, so it is created here and handed
-    // to each of them as a `SharedI2c` handle rather than owned by either.
+    // The display, the battery charger and both halves of the IMU share one bus, so it is
+    // created here and handed to each of them as a `SharedI2c` handle rather than owned by
+    // any one of them.
     let mut i2c_config = hal::i2c::controller::Config::default();
     i2c_config.frequency = const { highest_freq_in(Kilohertz::kHz(100)..=Kilohertz::kHz(400)) };
     let i2c_bus: &'static BoardI2cBus = I2C_BUS.init(Mutex::new(I2cBus::new(
@@ -130,6 +139,14 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         ))
         .unwrap();
     spawner
+        .spawn(monitor_imu(
+            BoardI2cDevice::new(i2c_bus),
+            BoardI2cDevice::new(i2c_bus),
+            IMU_STREAM.sender(),
+            IMU_TELEMETRY.sender(),
+        ))
+        .unwrap();
+    spawner
         .spawn(aggregate_telemetry(
             MOTOR_TELEMETRY.receiver(),
             BATTERY_TELEMETRY.receiver(),
@@ -154,6 +171,14 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             device_id,
             BROKER_STATUS.receiver().unwrap(),
             AGGREGATED_TELEMETRY.receiver(),
+            MQTT_PUBLISH.sender(),
+        ))
+        .unwrap();
+    spawner
+        .spawn(publish_imu_stream(
+            device_id,
+            BROKER_STATUS.receiver().unwrap(),
+            IMU_STREAM.receiver(),
             MQTT_PUBLISH.sender(),
         ))
         .unwrap();

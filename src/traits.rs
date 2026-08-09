@@ -1,6 +1,7 @@
 use core::fmt;
 
 use crate::data::battery::ChargerStatus;
+use crate::data::imu::ImuSample;
 
 pub enum MotorStatus {
     Stopped,
@@ -29,6 +30,18 @@ pub trait BatteryCharger {
     async fn init(&mut self) -> Result<(), Self::Error>;
     /// Samples everything the charger knows about the pack and the input in one pass.
     async fn read_status(&mut self) -> Result<ChargerStatus, Self::Error>;
+}
+
+pub trait Imu {
+    type Error: fmt::Debug;
+
+    /// Brings every part of the stack up and leaves it measuring. Must be called before
+    /// [`Imu::read`] returns anything meaningful, and is safe to call again to recover a
+    /// sensor that dropped off the bus.
+    async fn init(&mut self) -> Result<(), Self::Error>;
+    /// Samples all nine axes in one pass, in physical units and otherwise unprocessed.
+    /// Filtering is the caller's business -- see `data::imu::ImuFilter`.
+    async fn read(&mut self) -> Result<ImuSample, Self::Error>;
 }
 
 /// What the network page shows. Values that are not available yet render as placeholders.

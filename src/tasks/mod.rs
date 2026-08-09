@@ -1,5 +1,7 @@
 pub mod battery_monitor;
 pub mod display_controller;
+pub mod imu_monitor;
+pub mod imu_publisher;
 pub mod motor_controller;
 pub mod mqtt_client;
 pub mod mqtt_manager;
@@ -11,6 +13,8 @@ pub mod telemetry_publisher;
 
 pub use battery_monitor::monitor_battery;
 pub use display_controller::manage_display;
+pub use imu_monitor::monitor_imu;
+pub use imu_publisher::publish_imu_stream;
 pub use motor_controller::manage_motor_controller;
 pub use mqtt_client::manage_mqtt_client;
 pub use mqtt_manager::mqtt_manager;

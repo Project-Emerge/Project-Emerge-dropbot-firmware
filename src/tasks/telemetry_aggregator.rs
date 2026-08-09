@@ -33,23 +33,7 @@ pub async fn aggregate_telemetry(
         is_charging: false,
         state_of_charge: 0,
     };
-    let mut imu_telemetry = data::telemetry::IMUTelemetry {
-        accelerometer: data::telemetry::AccelerometerTelemetry {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        gyroscope: data::telemetry::GyroscopeTelemetry {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        magnetometer: data::telemetry::MagnetometerTelemetry {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-    };
+    let mut imu_telemetry = data::telemetry::IMUTelemetry::default();
     let mut network_telemetry = data::telemetry::NetworkTelemetry {
         rssi: 0,
         ip_address: None,

@@ -62,13 +62,14 @@ pub async fn manage_motor_controller(
                 info!("motors: OTA update ended, resuming");
             }
 
-        motor_driver.set_speed(0.5, 0.5).unwrap();
-        motor_telemetry
-            .send(data::telemetry::MotorTelemetry {
-                left_motor_rpm: 0.5,
-                right_motor_rpm: 0.5,
-            })
-            .await;
+        // motor_driver.set_speed(0.5, 0.5).unwrap();
+        // motor_telemetry
+        //     .send(data::telemetry::MotorTelemetry {
+        //         left_motor_rpm: 0.5,
+        //         right_motor_rpm: 0.5,
+        //     })
+        //     .await;
+        motor_driver.stop().unwrap();
         debug!("motors: left=50% right=50%");
         Timer::after(ariel_os::time::Duration::from_millis(10)).await;
     }
