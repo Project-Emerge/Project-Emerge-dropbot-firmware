@@ -32,10 +32,7 @@ pub async fn aggregate_telemetry(
         1,
     >,
 ) -> ! {
-    let mut motor_telemetry = data::telemetry::MotorTelemetry {
-        left_motor_rpm: 0.0,
-        right_motor_rpm: 0.0,
-    };
+    let mut motor_telemetry = data::telemetry::MotorTelemetry::Stopped;
     let mut battery_telemetry = data::telemetry::BatteryTelemetry {
         voltage: 0.0,
         current: 0.0,

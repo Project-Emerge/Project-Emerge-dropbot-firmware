@@ -1,5 +1,5 @@
 use ariel_os::gpio::Output;
-use ariel_os::log::{Debug2Format, debug, error, info, warn};
+use ariel_os::log::{Debug2Format, error, info, warn};
 use ariel_os::time::Timer;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -10,9 +10,10 @@ use esp_hal::time::Rate;
 
 use crate::data;
 use crate::data::ota::OtaStatus;
+use crate::data::telemetry::MotorTelemetry;
 use crate::drivers::motor_driver::{DRV8833Driver, types::MotorConfig};
 use crate::pins;
-use crate::traits::MotorController;
+use crate::traits::{MotorController, MotorStatus};
 
 #[ariel_os::task]
 pub async fn manage_motor_controller(
@@ -98,6 +99,23 @@ pub async fn manage_motor_controller(
                 }
             }
         };
+        match motor_driver.get_status() {
+            Ok(MotorStatus::Stopped) => {
+                motor_telemetry
+                    .try_send(MotorTelemetry::Stopped)
+                    .unwrap_or_else(|e| {
+                        error!("motors: failed to send telemetry: {:?}", Debug2Format(&e))
+                    });
+            }
+            Ok(MotorStatus::Motoring { left, right }) => {
+                motor_telemetry
+                    .try_send(MotorTelemetry::Motoring { left, right })
+                    .unwrap_or_else(|e| {
+                        error!("motors: failed to send telemetry: {:?}", Debug2Format(&e))
+                    });
+            }
+            Err(e) => error!("motors: get_status failed: {:?}", Debug2Format(&e)),
+        }
         Timer::after(ariel_os::time::Duration::from_millis(10)).await;
     }
 }

@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::imu::{FilteredImu, ImuSample};
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
-pub struct MotorTelemetry {
-    pub left_motor_rpm: f32,
-    pub right_motor_rpm: f32,
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum MotorTelemetry {
+    Stopped,
+    Motoring { left: f32, right: f32 },
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct BatteryTelemetry {
     /// Pack voltage in volts, i.e. both cells of the 2S pack in series.
     pub voltage: f32,
@@ -33,7 +33,7 @@ pub struct BatteryTelemetry {
 /// The two halves are the filter's own types, serialized as they are. Vectors come out as
 /// `[x, y, z]` and the attitude quaternion as `[x, y, z, w]` -- note the scalar part last,
 /// which is `glam`'s ordering.
-#[derive(Serialize, Deserialize, Clone, Copy, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Default, Debug)]
 pub struct IMUTelemetry {
     /// Microseconds since the board booted, read as close to the sensor transaction as the
     /// scheduler allows.
@@ -55,13 +55,13 @@ pub struct IMUTelemetry {
     pub filtered: FilteredImu,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkTelemetry {
     pub rssi: i32,
     pub ip_address: Option<String<16>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Telemetry {
     pub motor_telemetry: MotorTelemetry,
     pub battery_telemetry: BatteryTelemetry,

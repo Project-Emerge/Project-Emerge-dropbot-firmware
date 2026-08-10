@@ -9,7 +9,6 @@ mod tasks;
 mod topics;
 mod traits;
 
-use ariel_os::gpio::{Level, Output};
 use ariel_os::hal;
 use ariel_os::i2c::controller::{Kilohertz, highest_freq_in};
 use ariel_os::log::info;
