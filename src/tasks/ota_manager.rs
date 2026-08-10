@@ -103,10 +103,10 @@ pub async fn manage_ota(
             Ok(mut ota) => {
                 if let Ok(state) = ota.current_ota_state()
                     && matches!(state, OtaImageState::New | OtaImageState::PendingVerify)
-                        && ota.set_current_ota_state(OtaImageState::Valid).is_ok()
-                    {
-                        info!("ota: confirmed current firmware slot as valid");
-                    }
+                    && ota.set_current_ota_state(OtaImageState::Valid).is_ok()
+                {
+                    info!("ota: confirmed current firmware slot as valid");
+                }
             }
             Err(_) => {
                 error!(
@@ -196,7 +196,8 @@ async fn check_and_apply_update(
         publish_status(ota_status, OtaStatus::Preparing);
 
         let mut path: heapless::String<URL_BUFFER_SIZE> = heapless::String::new();
-        path.push_str(manifest.url).map_err(|_| OtaError::UrlTooLong)?;
+        path.push_str(manifest.url)
+            .map_err(|_| OtaError::UrlTooLong)?;
         (path, manifest.size)
     };
 

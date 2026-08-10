@@ -6,6 +6,7 @@ mod device_id;
 mod drivers;
 mod pins;
 mod tasks;
+mod topics;
 mod traits;
 
 use ariel_os::gpio::{Level, Output};
@@ -85,13 +86,17 @@ static CHARGER_STATUS: Watch<CriticalSectionRawMutex, data::battery::ChargerStat
 // The board's single I2C bus, built here because it outlives -- and is shared by -- both of
 // the tasks that talk on it.
 
-static MOTOR_COMMAND: Channel<CriticalSectionRawMutex, data::commands::DriveCommand, 2> = Channel::new();
+static MOTOR_COMMAND: Channel<CriticalSectionRawMutex, data::commands::DriveCommand, 2> =
+    Channel::new();
 
 static I2C_BUS: StaticCell<BoardI2cBus> = StaticCell::new();
 
 #[ariel_os::spawner(autostart, peripherals)]
 fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
     let device_id = device_id::init();
+    // Every MQTT topic is namespaced by the device ID, so the whole set is built here, once,
+    // and handed to the tasks that use it -- see `topics`.
+    let topics = topics::init(device_id);
     info!(
         "firmware: started on {} device_id={}",
         ariel_os::buildinfo::BOARD,
@@ -166,6 +171,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
     spawner
         .spawn(mqtt_manager(
             device_id,
+            topics,
             NETWORK_READY.receiver().unwrap(),
             BROKER_STATUS.sender(),
             MQTT_PUBLISH.receiver(),
@@ -174,7 +180,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .unwrap();
     spawner
         .spawn(publish_telemetry(
-            device_id,
+            topics.telemetry(),
             BROKER_STATUS.receiver().unwrap(),
             AGGREGATED_TELEMETRY.receiver(),
             MQTT_PUBLISH.sender(),
@@ -182,7 +188,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .unwrap();
     spawner
         .spawn(publish_imu_stream(
-            device_id,
+            topics.imu_stream(),
             BROKER_STATUS.receiver().unwrap(),
             IMU_STREAM.receiver(),
             MQTT_PUBLISH.sender(),
@@ -190,7 +196,6 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .unwrap();
     spawner
         .spawn(manage_mqtt_client(
-            device_id,
             MQTT_RECEIVE.receiver(),
             MOTOR_COMMAND.sender(),
             &OTA_CHECK_REQUEST,

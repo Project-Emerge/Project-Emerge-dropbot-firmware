@@ -4,7 +4,10 @@ use ariel_os::reexports::static_cell::StaticCell;
 use esp_hal::efuse::Efuse;
 use heapless::String;
 
-static STORAGE: StaticCell<String<6>> = StaticCell::new();
+/// Length of the formatted device ID: 3 eFuse bytes, 2 hex characters each.
+pub const DEVICE_ID_LEN: usize = 6;
+
+static STORAGE: StaticCell<String<DEVICE_ID_LEN>> = StaticCell::new();
 
 /// Derives the device ID from the ESP32-C6's factory-programmed eFuse base MAC address,
 /// formatted as 6 uppercase hex characters. eFuse is burned once at the factory and lives

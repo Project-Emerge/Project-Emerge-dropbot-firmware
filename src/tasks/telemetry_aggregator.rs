@@ -6,7 +6,12 @@ use crate::data;
 
 #[ariel_os::task]
 pub async fn aggregate_telemetry(
-    motor_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2>,
+    motor_telemetry_rx: Receiver<
+        'static,
+        CriticalSectionRawMutex,
+        data::telemetry::MotorTelemetry,
+        2,
+    >,
     battery_telemetry_rx: Receiver<
         'static,
         CriticalSectionRawMutex,
@@ -20,7 +25,12 @@ pub async fn aggregate_telemetry(
         data::telemetry::NetworkTelemetry,
         2,
     >,
-    aggregated_telemetry_tx: Sender<'static, CriticalSectionRawMutex, data::telemetry::Telemetry, 1>,
+    aggregated_telemetry_tx: Sender<
+        'static,
+        CriticalSectionRawMutex,
+        data::telemetry::Telemetry,
+        1,
+    >,
 ) -> ! {
     let mut motor_telemetry = data::telemetry::MotorTelemetry {
         left_motor_rpm: 0.0,

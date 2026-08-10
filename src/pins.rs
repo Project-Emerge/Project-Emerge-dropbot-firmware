@@ -49,9 +49,7 @@ ariel_os::hal::define_peripherals!(I2cPins {
 });
 
 #[cfg(context = "esp32c6")]
-ariel_os::hal::define_peripherals!(OtaPeripherals {
-    flash: FLASH,
-});
+ariel_os::hal::define_peripherals!(OtaPeripherals { flash: FLASH });
 
 ariel_os::hal::group_peripherals!(Peripherals {
     motor_driver: MotorDriverPins,

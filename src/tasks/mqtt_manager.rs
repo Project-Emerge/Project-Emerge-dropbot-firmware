@@ -1,19 +1,18 @@
-use core::fmt::Write;
 use core::str::FromStr;
 
 use ariel_os::log::{debug, error, info};
-use ariel_os::{config, net};
 use ariel_os::reexports::embassy_net::{Ipv4Address, tcp::TcpSocket};
 use ariel_os::time::Timer;
+use ariel_os::{config, net};
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
-use heapless::String;
-use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session, TopicFilter};
+use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session};
 
 use crate::TCP_BUFFER_SIZE;
 use crate::data::mqtt::{BrokerStatus, PublishMessage, ReceivedMessage};
+use crate::topics::Topics;
 
 const MQTT_SERVER_HOST: &str = config::str_from_env_or!(
     "MQTT_SERVER_HOST",
@@ -24,6 +23,7 @@ const MQTT_SERVER_HOST: &str = config::str_from_env_or!(
 #[ariel_os::task]
 pub async fn mqtt_manager(
     device_id: &'static str,
+    topics: &'static Topics,
     mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
     broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
     mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 2>,
@@ -81,22 +81,7 @@ pub async fn mqtt_manager(
             }
         }
 
-        // OTA topic filter
-        let mut ota_check_request_topic = String::<18>::new();
-        write!(ota_check_request_topic, "/ota/check/{}", device_id).unwrap();
-        let ota_check_request_topic_filter = TopicFilter::new(ota_check_request_topic.as_str());
-        // Motors topic filter
-        let mut motors_command_topic = String::<16>::new();
-        write!(motors_command_topic, "/motors/{}", device_id).unwrap();
-        let motors_command_topic_filter = TopicFilter::new(motors_command_topic.as_str());
-
-        if let Err(err) = conn
-            .subscribe(
-                &[ota_check_request_topic_filter, motors_command_topic_filter],
-                &[],
-            )
-            .await
-        {
+        if let Err(err) = conn.subscribe(&topics.subscriptions(), &[]).await {
             error!("mqtt: subscribe failed: {}", err);
             continue;
         }
@@ -110,16 +95,21 @@ pub async fn mqtt_manager(
             match select(conn.recv(), mqtt_publish_rx.receive()).await {
                 Either::First(received) => match received {
                     Ok(message) => {
-                        let mut msg = ReceivedMessage::default();
-                        if write!(msg.topic, "{}", message.topic()).is_err() {
-                            error!("mqtt: received topic too long, dropping message");
+                        // The wire topic is matched against the table here, once, so it never
+                        // has to be carried any further than this.
+                        let Some(topic) = topics.resolve(message.topic()) else {
+                            error!("mqtt: message on unsubscribed topic, dropping message");
                             continue;
-                        }
-                        if msg.payload.extend_from_slice(message.payload()).is_err() {
+                        };
+                        let mut payload = heapless::Vec::new();
+                        if payload.extend_from_slice(message.payload()).is_err() {
                             error!("mqtt: received payload too large, dropping message");
                             continue;
                         }
-                        if mqtt_receive_tx.try_send(msg).is_err() {
+                        if mqtt_receive_tx
+                            .try_send(ReceivedMessage { topic, payload })
+                            .is_err()
+                        {
                             error!("mqtt: receive queue full, dropping message");
                         }
                     }
@@ -133,7 +123,7 @@ pub async fn mqtt_manager(
                     }
                 },
                 Either::Second(msg) => {
-                    let publication = Publication::new(msg.topic.as_str(), msg.payload.as_slice());
+                    let publication = Publication::new(msg.topic, msg.payload.as_slice());
                     match conn.publish(publication).await {
                         Ok(_) => {
                             debug!("mqtt: published {} bytes", msg.payload.len());

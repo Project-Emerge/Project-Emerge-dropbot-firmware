@@ -1,10 +1,7 @@
-use core::fmt::Write;
-
 use ariel_os::log::{debug, error};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::watch::Receiver as WatchReceiver;
-use heapless::String;
 
 use crate::data::mqtt::{BrokerStatus, PublishMessage};
 use crate::data::telemetry::IMUTelemetry;
@@ -22,7 +19,7 @@ const ERROR_LOG_INTERVAL: u32 = 250;
 /// a battery percentage to parse fifty messages a second.
 #[ariel_os::task]
 pub async fn publish_imu_stream(
-    device_id: &'static str,
+    topic: &'static str,
     mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
     imu_stream_rx: Receiver<'static, CriticalSectionRawMutex, IMUTelemetry, 2>,
     mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
@@ -30,9 +27,6 @@ pub async fn publish_imu_stream(
     while broker_status.get().await != BrokerStatus::Connected {
         broker_status.changed().await;
     }
-
-    let mut topic = String::<64>::new();
-    let _ = write!(topic, "/imu/{}", device_id);
 
     let mut dropped: u32 = 0;
 
@@ -45,7 +39,7 @@ pub async fn publish_imu_stream(
         };
 
         let mut message = PublishMessage {
-            topic: topic.clone(),
+            topic,
             payload: heapless::Vec::new(),
         };
         if message.payload.extend_from_slice(&payload).is_err() {

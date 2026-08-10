@@ -54,23 +54,34 @@ pub async fn manage_motor_controller(
         // drive off unattended across the reboot. `set_speed` drives SLEEP high again, so
         // a failed update needs no explicit wake-up here.
         if let Some(status) = ota_status.try_changed()
-            && status.is_active() {
-                if let Err(e) = motor_driver.stop().and_then(|()| motor_driver.sleep()) {
-                    error!("motors: shutdown for OTA failed: {:?}", Debug2Format(&e));
-                }
-                info!("motors: disabled for OTA update");
-
-                while ota_status.changed().await.is_active() {}
-                info!("motors: OTA update ended, resuming");
+            && status.is_active()
+        {
+            if let Err(e) = motor_driver.stop().and_then(|()| motor_driver.sleep()) {
+                error!("motors: shutdown for OTA failed: {:?}", Debug2Format(&e));
             }
+            info!("motors: disabled for OTA update");
 
-        match select(motor_command.receive(), Timer::after(ariel_os::time::Duration::from_secs(3))).await {
+            while ota_status.changed().await.is_active() {}
+            info!("motors: OTA update ended, resuming");
+        }
+
+        match select(
+            motor_command.receive(),
+            Timer::after(ariel_os::time::Duration::from_secs(3)),
+        )
+        .await
+        {
             Either::First(command) => {
                 info!("motors: received command: {:?}", Debug2Format(&command));
                 match command {
                     data::commands::DriveCommand::Move { left, right } => {
                         if let Err(e) = motor_driver.set_speed(left, right) {
-                            error!("motors: set_speed({}, {}) failed: {:?}", left, right, Debug2Format(&e));
+                            error!(
+                                "motors: set_speed({}, {}) failed: {:?}",
+                                left,
+                                right,
+                                Debug2Format(&e)
+                            );
                         }
                     }
                     data::commands::DriveCommand::Stop => {
@@ -79,7 +90,7 @@ pub async fn manage_motor_controller(
                         }
                     }
                 }
-            },
+            }
             Either::Second(()) => {
                 warn!("motors: no command received for 3s, stopping");
                 if let Err(e) = motor_driver.stop() {
@@ -87,32 +98,6 @@ pub async fn manage_motor_controller(
                 }
             }
         };
-
-        // for i in 0..=100 {
-        //     let speed = i as f32 / 100.0;
-        //     if let Err(e) = motor_driver.set_speed(speed, speed) {
-        //         error!("motors: set_speed({}, {}) failed: {:?}", speed, speed, Debug2Format(&e));
-        //     }
-        //     debug!("motors: left={} right={}", speed, speed);
-        //     Timer::after(ariel_os::time::Duration::from_millis(10)).await;
-        // }
-        // for i in (0..=100).rev() {
-        //     let speed = i as f32 / 100.0;
-        //     if let Err(e) = motor_driver.set_speed(speed, speed) {
-        //         error!("motors: set_speed({}, {}) failed: {:?}", speed, speed, Debug2Format(&e));
-        //     }
-        //     debug!("motors: left={} right={}", speed, speed);
-        //     Timer::after(ariel_os::time::Duration::from_millis(10)).await;
-        // }
-        // motor_driver.set_speed(1.0, 1.0).unwrap();
-        // motor_telemetry
-        //     .send(data::telemetry::MotorTelemetry {
-        //         left_motor_rpm: 0.5,
-        //         right_motor_rpm: 0.5,
-        //     })
-        //     .await;
-        // motor_driver.stop().unwrap();
-        // debug!("motors: left=50% right=50%");
         Timer::after(ariel_os::time::Duration::from_millis(10)).await;
     }
 }

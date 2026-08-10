@@ -1,18 +1,15 @@
-use core::fmt::Write;
-
 use ariel_os::log::debug;
 use ariel_os::log::error;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::watch::Receiver as WatchReceiver;
-use heapless::String;
 
 use crate::data::mqtt::{BrokerStatus, PublishMessage};
 use crate::data::telemetry::Telemetry;
 
 #[ariel_os::task]
 pub async fn publish_telemetry(
-    device_id: &'static str,
+    topic: &'static str,
     mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
     aggregated_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, Telemetry, 1>,
     mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
@@ -29,9 +26,6 @@ pub async fn publish_telemetry(
 
         match serde_json::to_vec(&telemetry) {
             Ok(buffer) => {
-                let mut topic_buf = String::<64>::new();
-                let _ = write!(topic_buf, "/telemetry/{}", device_id);
-
                 let mut payload = heapless::Vec::<u8, 1024>::new();
                 if payload.extend_from_slice(buffer.as_slice()).is_err() {
                     error!("telemetry: payload too large for buffer");
@@ -39,10 +33,7 @@ pub async fn publish_telemetry(
                 }
 
                 let payload_len = payload.len();
-                let msg = PublishMessage {
-                    topic: topic_buf,
-                    payload,
-                };
+                let msg = PublishMessage { topic, payload };
 
                 match mqtt_publish_tx.try_send(msg) {
                     Ok(_) => {

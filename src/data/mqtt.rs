@@ -1,15 +1,19 @@
-use heapless::String;
 use heapless::Vec;
 
+use crate::topics::InboundTopic;
+
+/// Both topics are borrowed from the table in [`crate::topics`] rather than owned: the topic
+/// of a message is always one of a handful known at boot, so a queued message carries a
+/// pointer instead of a 64-byte buffer it would have to have formatted first.
 #[derive(Clone)]
 pub struct PublishMessage {
-    pub topic: String<64>,
+    pub topic: &'static str,
     pub payload: Vec<u8, 1024>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ReceivedMessage {
-    pub topic: String<64>,
+    pub topic: InboundTopic,
     pub payload: Vec<u8, 1024>,
 }
 
