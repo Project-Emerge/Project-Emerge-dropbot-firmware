@@ -8,6 +8,7 @@ mod pins;
 mod tasks;
 mod traits;
 
+use ariel_os::gpio::{Level, Output};
 use ariel_os::hal;
 use ariel_os::i2c::controller::{Kilohertz, highest_freq_in};
 use ariel_os::log::info;
@@ -83,6 +84,9 @@ static CHARGER_STATUS: Watch<CriticalSectionRawMutex, data::battery::ChargerStat
     Watch::new();
 // The board's single I2C bus, built here because it outlives -- and is shared by -- both of
 // the tasks that talk on it.
+
+static MOTOR_COMMAND: Channel<CriticalSectionRawMutex, data::commands::DriveCommand, 2> = Channel::new();
+
 static I2C_BUS: StaticCell<BoardI2cBus> = StaticCell::new();
 
 #[ariel_os::spawner(autostart, peripherals)]
@@ -117,6 +121,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .spawn(manage_motor_controller(
             peripherals.motor_driver,
             MOTOR_TELEMETRY.sender(),
+            MOTOR_COMMAND.receiver(),
             OTA_STATUS.receiver().unwrap(),
         ))
         .unwrap();
@@ -160,6 +165,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .unwrap();
     spawner
         .spawn(mqtt_manager(
+            device_id,
             NETWORK_READY.receiver().unwrap(),
             BROKER_STATUS.sender(),
             MQTT_PUBLISH.receiver(),
@@ -184,7 +190,9 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .unwrap();
     spawner
         .spawn(manage_mqtt_client(
+            device_id,
             MQTT_RECEIVE.receiver(),
+            MOTOR_COMMAND.sender(),
             &OTA_CHECK_REQUEST,
         ))
         .unwrap();

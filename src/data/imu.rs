@@ -122,10 +122,21 @@ const HEADING_CORRECTION_TAU_S: f32 = 10.0;
 /// wheel dropping off a ledge, a robot being picked up.
 const GRAVITY_REFERENCE_TOLERANCE: f32 = 1.5;
 
-/// Both horizontal magnetometer axes have to have swung at least this far, in µT, before the
-/// hard-iron estimate is worth applying. The earth's horizontal field is 20-30 µT in most of
-/// the world, so this amounts to "the board has been turned through a decent arc".
-const HARD_IRON_MIN_SPAN_UT: f32 = 20.0;
+/// The horizontal field direction is bucketed into this many sectors, and this many of them
+/// must have been visited before the hard-iron estimate is worth applying.
+///
+/// Eight of twelve, chosen by measuring the estimate's error against the sectors seen rather
+/// than by picking a fraction of a turn that sounded right. The error falls off a cliff
+/// between six sectors and seven -- 1.8 µT to 0.03 µT -- and stays there, so eight sits one
+/// sector past the knee. Ten, the first guess, cost a further sixty degrees of driving and
+/// bought nothing.
+const HARD_IRON_SECTORS: u32 = 12;
+const HARD_IRON_SECTORS_REQUIRED: u32 = 8;
+
+/// A sample only votes for a sector when its horizontal distance from the centre estimated so
+/// far is at least this, in µT. Comfortably above the part's noise, comfortably below the
+/// earth's horizontal field anywhere it matters.
+const HARD_IRON_MIN_RADIUS_UT: f32 = 5.0;
 
 /// Bounds on the integration step, in seconds. A step shorter than this is noise in the
 /// timer; one longer than this means the task was starved -- by a display flush holding the
@@ -191,7 +202,7 @@ pub struct FilteredImu {
     pub pitch: f32,
     /// Magnetic heading in degrees, 0 at magnetic north and increasing clockwise. `None`
     /// until the board has turned far enough for the hard-iron estimate to hold up; see
-    /// [`HARD_IRON_MIN_SPAN_UT`].
+    /// [`HardIron::is_usable`].
     ///
     /// Magnetic north is not the UWB anchor frame's north: a consumer fusing the two needs a
     /// constant offset between them, which is a property of the room and belongs wherever
@@ -572,6 +583,8 @@ struct HardIron {
     min: Vec3,
     max: Vec3,
     seen: bool,
+    /// One bit per sector of the horizontal field direction already visited.
+    sectors: u16,
 }
 
 impl HardIron {
@@ -580,6 +593,7 @@ impl HardIron {
             min: Vec3::ZERO,
             max: Vec3::ZERO,
             seen: false,
+            sectors: 0,
         }
     }
 
@@ -601,21 +615,39 @@ impl HardIron {
             y: self.max.y.max(sample.y),
             z: self.max.z.max(sample.z),
         };
+
+        // Which way round the circle this sample sits, measured from the centre estimated so
+        // far. Samples too close to that centre have no meaningful direction -- a board
+        // standing still would otherwise let its own noise wander across every sector and
+        // announce itself calibrated.
+        let centred = sample - self.offset();
+        if sqrtf(centred.x * centred.x + centred.y * centred.y) >= HARD_IRON_MIN_RADIUS_UT {
+            let bearing = wrap_360(atan2f(centred.y, centred.x) * DEGREES_PER_RADIAN);
+            let sector = (bearing / (360.0 / HARD_IRON_SECTORS as f32)) as u32;
+            self.sectors |= 1 << sector.min(HARD_IRON_SECTORS - 1);
+        }
     }
 
     fn offset(&self) -> Vec3 {
         (self.min + self.max) * 0.5
     }
 
-    /// Whether the board has turned through enough of an arc for [`HardIron::offset`] to be
+    /// Whether the board has been round enough of the circle for [`HardIron::offset`] to be
     /// an estimate rather than a guess.
     ///
-    /// Only the two horizontal axes are checked: a robot that drives on a floor turns about
-    /// the vertical one, so the vertical axis never sweeps and would hold the estimate back
-    /// forever.
+    /// Counting sectors rather than measuring how far each axis has swung, which is the
+    /// obvious test and does not work: a quarter turn already swings both horizontal axes
+    /// across most of their range, so a span threshold passes while the box is still a
+    /// quarter of the circle and its centre is out by most of the field strength. Measured on
+    /// the bench, the span test announced itself ready after 86° with the offset wrong by
+    /// 15.7 µT -- and a wrong offset does not merely make the bearing wrong, it makes it wrong
+    /// in a way that slowly corrects itself as the estimate improves, which reads as a bearing
+    /// that drifts for half a minute after the robot stops.
+    ///
+    /// Only the horizontal plane is considered: a robot driving on a floor turns about the
+    /// vertical axis, which therefore never sweeps and would hold the estimate back forever.
     fn is_usable(&self) -> bool {
-        self.max.x - self.min.x >= HARD_IRON_MIN_SPAN_UT
-            && self.max.y - self.min.y >= HARD_IRON_MIN_SPAN_UT
+        self.sectors.count_ones() >= HARD_IRON_SECTORS_REQUIRED
     }
 }
 

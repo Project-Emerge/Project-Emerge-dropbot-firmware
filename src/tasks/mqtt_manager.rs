@@ -9,6 +9,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
+use heapless::String;
 use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session, TopicFilter};
 
 use crate::TCP_BUFFER_SIZE;
@@ -22,6 +23,7 @@ const MQTT_SERVER_HOST: &str = config::str_from_env_or!(
 
 #[ariel_os::task]
 pub async fn mqtt_manager(
+    device_id: &'static str,
     mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
     broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
     mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 2>,
@@ -47,7 +49,7 @@ pub async fn mqtt_manager(
     let tx = &mut [0u8; 1536];
     let mut session = Session::new(
         ConfigBuilder::new(Buffers::new(rx, tx))
-            .client_id("dropbot")
+            .client_id(device_id)
             .unwrap(),
     );
 
@@ -79,9 +81,18 @@ pub async fn mqtt_manager(
             }
         }
 
+        // OTA topic filter
+        let mut ota_check_request_topic = String::<18>::new();
+        write!(ota_check_request_topic, "/ota/check/{}", device_id).unwrap();
+        let ota_check_request_topic_filter = TopicFilter::new(ota_check_request_topic.as_str());
+        // Motors topic filter
+        let mut motors_command_topic = String::<16>::new();
+        write!(motors_command_topic, "/motors/{}", device_id).unwrap();
+        let motors_command_topic_filter = TopicFilter::new(motors_command_topic.as_str());
+
         if let Err(err) = conn
             .subscribe(
-                &[TopicFilter::new("dio/cane"), TopicFilter::new("dio/ota/check")],
+                &[ota_check_request_topic_filter, motors_command_topic_filter],
                 &[],
             )
             .await

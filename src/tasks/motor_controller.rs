@@ -1,8 +1,9 @@
 use ariel_os::gpio::Output;
-use ariel_os::log::{Debug2Format, debug, error, info};
+use ariel_os::log::{Debug2Format, debug, error, info, warn};
 use ariel_os::time::Timer;
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Sender;
+use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::watch::Receiver as WatchReceiver;
 use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode};
 use esp_hal::time::Rate;
@@ -17,6 +18,7 @@ use crate::traits::MotorController;
 pub async fn manage_motor_controller(
     pins: pins::MotorDriverPins,
     motor_telemetry: Sender<'static, CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2>,
+    motor_command: Receiver<'static, CriticalSectionRawMutex, data::commands::DriveCommand, 2>,
     mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
 ) -> ! {
     let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(32)).unwrap();
@@ -62,15 +64,55 @@ pub async fn manage_motor_controller(
                 info!("motors: OTA update ended, resuming");
             }
 
-        // motor_driver.set_speed(0.5, 0.5).unwrap();
+        match select(motor_command.receive(), Timer::after(ariel_os::time::Duration::from_secs(3))).await {
+            Either::First(command) => {
+                info!("motors: received command: {:?}", Debug2Format(&command));
+                match command {
+                    data::commands::DriveCommand::Move { left, right } => {
+                        if let Err(e) = motor_driver.set_speed(left, right) {
+                            error!("motors: set_speed({}, {}) failed: {:?}", left, right, Debug2Format(&e));
+                        }
+                    }
+                    data::commands::DriveCommand::Stop => {
+                        if let Err(e) = motor_driver.stop() {
+                            error!("motors: stop failed: {:?}", Debug2Format(&e));
+                        }
+                    }
+                }
+            },
+            Either::Second(()) => {
+                warn!("motors: no command received for 3s, stopping");
+                if let Err(e) = motor_driver.stop() {
+                    error!("motors: stop failed: {:?}", Debug2Format(&e));
+                }
+            }
+        };
+
+        // for i in 0..=100 {
+        //     let speed = i as f32 / 100.0;
+        //     if let Err(e) = motor_driver.set_speed(speed, speed) {
+        //         error!("motors: set_speed({}, {}) failed: {:?}", speed, speed, Debug2Format(&e));
+        //     }
+        //     debug!("motors: left={} right={}", speed, speed);
+        //     Timer::after(ariel_os::time::Duration::from_millis(10)).await;
+        // }
+        // for i in (0..=100).rev() {
+        //     let speed = i as f32 / 100.0;
+        //     if let Err(e) = motor_driver.set_speed(speed, speed) {
+        //         error!("motors: set_speed({}, {}) failed: {:?}", speed, speed, Debug2Format(&e));
+        //     }
+        //     debug!("motors: left={} right={}", speed, speed);
+        //     Timer::after(ariel_os::time::Duration::from_millis(10)).await;
+        // }
+        // motor_driver.set_speed(1.0, 1.0).unwrap();
         // motor_telemetry
         //     .send(data::telemetry::MotorTelemetry {
         //         left_motor_rpm: 0.5,
         //         right_motor_rpm: 0.5,
         //     })
         //     .await;
-        motor_driver.stop().unwrap();
-        debug!("motors: left=50% right=50%");
+        // motor_driver.stop().unwrap();
+        // debug!("motors: left=50% right=50%");
         Timer::after(ariel_os::time::Duration::from_millis(10)).await;
     }
 }

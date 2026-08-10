@@ -8,4 +8,4 @@ OTA_SERVER_HOST = "192.168.8.168"
 MQTT_SERVER_HOST = "192.168.8.1"
 # Keep application lifecycle events visible while suppressing noisy networking internals.
 # Set this to `debug` temporarily when investigating firmware behavior.
-DEFMT_LOG = { value = "debug,esp_radio=debug,embassy_net=debug", force = true }
+DEFMT_LOG = { value = "info,esp_radio=debug,embassy_net=debug", force = true }
