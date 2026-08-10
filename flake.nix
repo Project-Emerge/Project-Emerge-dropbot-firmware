@@ -1,73 +1,27 @@
 {
-  description = "Project Emerge Dropbot firmware";
+  description = "Project Emerge dropbot firmware (Ariel OS / ESP32-C6)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { nixpkgs, ... }:
+  outputs = { self, nixpkgs }:
     let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs { inherit system; };
-      llvm = pkgs.llvmPackages_latest;
-      rustSysroot = pkgs.symlinkJoin {
-        name = "rust-sysroot";
-        paths = [ pkgs.rustc-unwrapped ];
-        postBuild = ''
-          mkdir -p "$out/lib/rustlib/src/rust"
-          ln -s ${pkgs.rustPlatform.rustLibSrc} "$out/lib/rustlib/src/rust/library"
-        '';
-      };
-      rustc = pkgs.writeShellScriptBin "rustc" ''
-        extra_sysroot=(--sysroot ${rustSysroot})
-        for arg in "$@"; do
-          case "$arg" in
-            --sysroot|--sysroot=*)
-              extra_sysroot=()
-              break
-              ;;
-          esac
-        done
-
-        exec ${pkgs.rustc}/bin/rustc "''${extra_sysroot[@]}" "$@"
-      '';
-      clippyDriver = pkgs.writeShellScriptBin "clippy-driver" ''
-        extra_sysroot=(--sysroot ${rustSysroot})
-        for arg in "$@"; do
-          case "$arg" in
-            --sysroot|--sysroot=*)
-              extra_sysroot=()
-              break
-              ;;
-          esac
-        done
-
-        if [ "$#" -gt 0 ] && [ "$(basename "$1")" = "rustc" ]; then
-          rustc_cmd="$1"
-          shift
-          exec ${pkgs.clippy}/bin/clippy-driver "$rustc_cmd" "''${extra_sysroot[@]}" "$@"
-        fi
-
-        exec ${pkgs.clippy}/bin/clippy-driver "''${extra_sysroot[@]}" "$@"
-      '';
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          cargo
-          clang
-          clippyDriver
-          clippy
-          espflash
-          lld
-          probe-rs-tools
-          rust-analyzer
-          rustc
-          rustfmt
-        ];
-
-        LIBCLANG_PATH = "${llvm.libclang.lib}/lib";
-        RUSTC_BOOTSTRAP = "1";
-        RUSTFLAGS = "--sysroot ${rustSysroot}";
-        RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
-      };
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            rustup
+            laze
+            espflash
+            ninja
+            pkg-config
+            udev
+            clang
+            pkgsCross.riscv32-embedded.buildPackages.gcc
+          ];
+        };
+      });
     };
 }

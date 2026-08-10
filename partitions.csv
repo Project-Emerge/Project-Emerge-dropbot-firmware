@@ -1,0 +1,25 @@
+# ESP-IDF partition table for OTA support on the dropbot board (ESP32-C6, 4 MB flash).
+#
+# Two app slots (ota_0/ota_1) are cycled by the OTA service in
+# src/tasks/ota_manager.rs. There is deliberately no `factory` partition: three
+# app slots do not fit in 4 MB, and dropping it leaves ~1.9 MB per slot instead
+# of the ~1.3 MB a three-way split would allow. A plain `espflash flash` targets
+# ota_0 (espflash falls back to the first app partition), and the bootloader also
+# boots ota_0 when otadata is blank or invalid.
+#
+# This table must be passed explicitly when flashing, e.g.:
+#   espflash flash --partition-table=partitions.csv --erase-parts=otadata <elf>
+#
+# `--erase-parts=otadata` matters during local development: without it, a device
+# whose otadata still points at ota_1 would keep booting the stale image there
+# instead of the slot you just flashed.
+#
+# IMPORTANT: switching to this table from the default single-slot layout
+# requires a full `espflash erase-flash` once, since the new nvs/otadata
+# regions may otherwise contain stale data left over from the old layout.
+#
+# Name,     Type, SubType,  Offset,   Size
+nvs,        data, nvs,      0x9000,   0x6000
+otadata,    data, ota,      0xf000,   0x2000
+ota_0,      app,  ota_0,    0x20000,  0x1E0000
+ota_1,      app,  ota_1,    0x200000, 0x1E0000

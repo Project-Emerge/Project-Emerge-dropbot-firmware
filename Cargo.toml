@@ -20,13 +20,50 @@ test = false
 name = "hello_test"
 harness = false
 
+[[bin]]
+name = "dropbot-firmware"
+path = "src/main.rs"
+
 [dependencies]
-defmt = "1.1.0"
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6", "defmt"] }
-esp-backtrace = { version = "0.19.0", features = [
-    "esp32c6",
-    "panic-handler",
-    "defmt",
+ariel-os = { path = "build/imports/ariel-os/src/ariel-os", features = [ "no-boards", "external-interrupts", "time", "i2c", "net", "ipv4", "dns", "tcp"] }
+ariel-os-boards = { path = "build/imports/ariel-os/src/ariel-os-boards" }
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.1"
+embedded-graphics = "0.8.2"
+heapless = { version = "0.8.0", features = ["serde"] }
+# `core` has no transcendental float math, which the IMU filters need for the tilt
+# compensation and the complementary filter.
+libm = { version = "0.2", default-features = false }
+# Vector and quaternion arithmetic for the IMU attitude estimate. `libm` rather than `std`,
+# and no SIMD: the esp32c6 is RV32IMAC, so every float operation is software anyway.
+glam = { version = "0.33", default-features = false, features = ["libm", "serde"] }
+# Board-specific dependencies
+ssd1306-embassy-async = "0.1.0"
+# Default features only: the crate's `embassy` feature pulls in `cortex-m`, which does not
+# build for the RISC-V esp32c6.
+bq25887 = { version = "0.1.11", default-features = false }
+minimq = { version = "0.13.0" }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+
+[target.'cfg(context = "esp32c6")'.dependencies]
+esp-hal = { version = "~1.0", features = ["unstable"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32c6", "defmt"] }
+esp-storage = { version = "0.8.0", features = ["esp32c6", "defmt"] }
+embedded-storage = "0.3.1"
+embedded-io-async = { version = "0.7.0", default-features = false }
+reqwless = { version = "0.14.0", default-features = false }
+# esp-backtrace = { version = "0.19.0", features = [
+#     "esp32c6",
+#     "panic-handler",
+#     "defmt",
+# ] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(context, values(any()))',
 ] }
 esp-hal = { version = "1.1.1", features = [
   "defmt",

@@ -1,0 +1,26 @@
+imports:
+  - git:
+      url: https://github.com/ariel-os/ariel-os
+      tag: v0.5.0
+    dldir: ariel-os
+
+builders:
+  - name: dropbot
+    parent: esp32c6
+    provides:
+      - has_usb_cdc_acm_port
+
+apps:
+  - name: dropbot-firmware
+    env:
+      global:
+        # manage_ota shares the executor thread with every other task; it needs stack for
+        # reqwless HTTP+TCP+DNS plus esp_bootloader_esp_idf flash/partition-table parsing and
+        # JSON parsing on top. ariel-os's own http-client example asks for 65536 for HTTP alone.
+        executor_stacksize_required:
+          - "65536"
+    selects:
+      - network
+      - logging-over-usb
+    context:
+      - dropbot
