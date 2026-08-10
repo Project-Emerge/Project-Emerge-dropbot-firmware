@@ -1,8 +1,4 @@
-[target.riscv32imc-unknown-none-elf]
-runner = "probe-rs run --chip=esp32c3 --preverify --always-print-stacktrace --no-location --catch-hardfault --rtt-scan-memory"
-
-[target.riscv32imac-unknown-none-elf]
-runner = "probe-rs run --chip=esp32c6 --preverify --always-print-stacktrace --no-location --catch-hardfault --rtt-scan-memory"
+include = ["../build/imports/ariel-os/ariel-os-cargo.toml"]
 
 [env]
 CONFIG_WIFI_NETWORK = "your_wifi_network"
