@@ -52,6 +52,12 @@ jobs:
           rustup target add "${RUST_TARGET}"
           rustup component add rust-src llvm-tools
 
+      # `.cargo/config.toml` includes a file from the ariel-os import, which laze only
+      # fetches on first use. `-G` generates the build files without compiling, so this
+      # needs to run before any plain `cargo` invocation (e.g. `cargo fmt`) works at all.
+      - name: Fetch project imports
+        run: laze build -b "${BUILDER}" -a "${FIRMWARE_NAME}" -G
+
       - name: Check formatting
         run: cargo fmt --check
 
