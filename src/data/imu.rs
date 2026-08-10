@@ -263,8 +263,7 @@ impl ImuFilter {
         if is_stationary {
             // `gyroscope` already has the current estimate subtracted, so what is left of a
             // still board's rate is the error in that estimate; fold it in slowly.
-            self.gyro_bias =
-                self.gyro_bias + gyroscope * correction_weight(GYRO_BIAS_TAU_S, timestep);
+            self.gyro_bias += gyroscope * correction_weight(GYRO_BIAS_TAU_S, timestep);
         }
 
         self.update_attitude(accelerometer, gyroscope, magnetometer, timestep);
@@ -382,8 +381,8 @@ impl ImuFilter {
                 return;
             }
 
-            correction = correction
-                + measured_up.cross(predicted_up) * (DEGREES_PER_RADIAN / GRAVITY_CORRECTION_TAU_S);
+            correction +=
+                measured_up.cross(predicted_up) * (DEGREES_PER_RADIAN / GRAVITY_CORRECTION_TAU_S);
         }
 
         if let Some(from_magnetometer) = self.magnetic_heading(magnetometer) {
@@ -399,7 +398,7 @@ impl ImuFilter {
                 // counter-clockwise: hence the sign.
                 z: -error / HEADING_CORRECTION_TAU_S,
             };
-            correction = correction + self.orientation.to_body(about_vertical);
+            correction += self.orientation.to_body(about_vertical);
         }
 
         self.orientation = self

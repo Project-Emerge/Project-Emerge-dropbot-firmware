@@ -47,6 +47,7 @@ const MAX_CONCURRENT_CONNECTIONS: usize = 1;
 // Field contents are only ever surfaced through the derived `Debug` impl (via `Debug2Format`
 // in the `error!` logs below), which the dead-code lint doesn't credit as a read.
 #[derive(Debug)]
+#[allow(dead_code)]
 enum OtaError {
     Http(reqwless::Error),
     Json(serde_json::Error),

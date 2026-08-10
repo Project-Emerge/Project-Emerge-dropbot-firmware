@@ -58,7 +58,10 @@ const COUNTS_PER_GAUSS: f32 = 16_384.0;
 /// Microtesla per gauss.
 const MICROTESLA_PER_GAUSS: f32 = 100.0;
 
+// Field contents are only ever surfaced through the derived `Debug` impl (via `Debug2Format`
+// in `imu_monitor`'s `error!` logs), which the dead-code lint doesn't credit as a read.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Mmc5983maError<E> {
     Bus(E),
     /// Something answered at the part's address but did not identify as an MMC5983MA.

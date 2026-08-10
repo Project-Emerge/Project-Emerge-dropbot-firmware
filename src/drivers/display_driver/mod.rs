@@ -325,26 +325,6 @@ impl<I2C: I2c> DisplayController for SD1306Driver<I2C> {
         Ok(())
     }
 
-    async fn clear(&mut self) -> Result<(), Self::Error> {
-        let display = self.display_mut()?;
-        display.clear();
-        display.flush().await.map_err(DisplayError::Bus)
-    }
-
-    async fn draw_text(&mut self, x: u32, y: u32, text: &str) -> Result<(), Self::Error> {
-        let x = i32::try_from(x).map_err(|_| DisplayError::CoordinatesOutOfRange)?;
-        let y = i32::try_from(y).map_err(|_| DisplayError::CoordinatesOutOfRange)?;
-        let display = self.display_mut()?;
-        let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-
-        match Text::new(text, Point::new(x, y), style).draw(display) {
-            Ok(_) => {}
-            Err(error) => match error {},
-        }
-
-        display.flush().await.map_err(DisplayError::Bus)
-    }
-
     async fn draw_network_page(&mut self, page: &NetworkPage<'_>) -> Result<(), Self::Error> {
         let version = version_label(page.firmware_version);
         let display = self.display_mut()?;

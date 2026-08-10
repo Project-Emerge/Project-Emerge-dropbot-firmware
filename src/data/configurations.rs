@@ -1,3 +1,8 @@
+// Not constructed directly anywhere yet -- these are `Deserialize` targets for a
+// remote-configuration command that hasn't been wired up to `data::commands` yet, which the
+// dead-code lint doesn't credit as a use.
+#![allow(dead_code)]
+
 use heapless::Vec;
 use serde::{Deserialize, Serialize};
 

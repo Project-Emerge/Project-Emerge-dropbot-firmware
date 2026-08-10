@@ -66,10 +66,6 @@ pub trait DisplayController {
 
     /// Initializes the display. This method should be called before any other display operations.
     async fn init(&mut self) -> Result<(), Self::Error>;
-    /// Clears the display, removing all content.
-    async fn clear(&mut self) -> Result<(), Self::Error>;
-    /// Draws a string of text on the display at the specified coordinates (x, y).
-    async fn draw_text(&mut self, x: u32, y: u32, text: &str) -> Result<(), Self::Error>;
     /// Draws the network page -- Wi-Fi link, address and broker session -- in a single
     /// framebuffer update.
     async fn draw_network_page(&mut self, page: &NetworkPage<'_>) -> Result<(), Self::Error>;
