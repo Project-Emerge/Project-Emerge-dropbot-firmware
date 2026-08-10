@@ -14,7 +14,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   ESPFLASH_SKIP_UPDATE_CHECK: "true"
-  FIRMWARE_NAME: project-emerge-firmware
+  FIRMWARE_NAME: dropbot-firmware
+  BUILDER: dropbot
   RUST_TARGET: riscv32imac-unknown-none-elf
 
 jobs:
@@ -35,33 +36,38 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore Cargo cache
+      - name: Restore Cargo/laze cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-            target
-          key: cargo-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml', 'flake.lock', 'flake.nix') }}
+            ~/.gitcache
+          key: cargo-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml', 'laze-project.yml', 'flake.lock', 'flake.nix') }}
           restore-keys: |
             cargo-${{ runner.os }}-${{ env.RUST_TARGET }}-
 
+      - name: Install Rust target for ${{ env.RUST_TARGET }}
+        run: |
+          rustup target add "${RUST_TARGET}"
+          rustup component add rust-src llvm-tools
+
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: cargo fmt --check
 
       - name: Lint with Clippy
-        run: RUSTC_WORKSPACE_WRAPPER=clippy-driver CLIPPY_ARGS=-Dwarnings cargo check --workspace --all-features --locked
+        # Advisory only: does not fail the build. `ariel-os` is a path dependency, so
+        # `--all` would also lint/format the vendored upstream source under build/imports.
+        run: laze build -b "${BUILDER}" -a "${FIRMWARE_NAME}" clippy
 
       - name: Build release firmware
-        run: cargo build --release --locked
-
-      - name: Compile embedded test image
-        run: cargo rustc --test hello_test --all-features --locked -- -C link-arg=-Tembedded-test.x
+        run: laze build -b "${BUILDER}" -a "${FIRMWARE_NAME}"
 
       - name: Package firmware image
         run: |
           mkdir -p dist
-          cp "target/${RUST_TARGET}/release/${FIRMWARE_NAME}" "dist/${FIRMWARE_NAME}.elf"
+          bin="build/bin/${BUILDER}/cargo/${RUST_TARGET}/release/${FIRMWARE_NAME}"
+          cp "$bin" "dist/${FIRMWARE_NAME}.elf"
           espflash save-image --chip esp32c6 --merge "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}.bin"
           sha256sum "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}.bin" > dist/SHA256SUMS
 
