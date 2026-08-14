@@ -1,0 +1,22 @@
+apps:
+  - name: uwb-anchor-firmware
+    selects:
+      # RTT over the SWD debug channel is the anchors' only output: the boards expose no UART,
+      # no USB connector and no network interface, so `probe-rs run` is both the flashing path
+      # and the log path. Selecting this explicitly rather than leaning on
+      # `logging-transport-default`'s optional-select chain keeps the resolution readable.
+      - debug-console
+      # Resolves to `anchor-1` (the TDMA master) unless a specific identity was selected, e.g.
+      # `laze build -b uwb-anchor -a uwb-anchor-firmware -s anchor-3`.
+      - anchor-identity-default
+    env:
+      global:
+        # 8192 (the ariel-os default) is enough for the ranging loop itself, but the DW3000
+        # bring-up path (`dw3000-ng`'s `init()`/`config()` walk the OTP and run the PGF
+        # calibration) and the 127-byte frame buffers on top of a nested async state machine sit
+        # close to it. 16 KiB of the STM32L432KC's 64 KiB is cheap insurance; unlike the dropbot
+        # there is no HTTP/TLS/JSON stack competing for the same RAM.
+        executor_stacksize_required:
+          - "16384"
+    context:
+      - uwb-anchor

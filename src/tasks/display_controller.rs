@@ -48,7 +48,7 @@ pub async fn manage_display(
     network_status: &'static Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
     mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
     button_events: Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 2>,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
+    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 5>,
     mut charger_status: WatchReceiver<'static, CriticalSectionRawMutex, ChargerStatus, 1>,
 ) -> ! {
     let mut display = SD1306Driver::new(i2c, 0x3C);
@@ -168,7 +168,7 @@ async fn next_event(
     network_status: &Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
     ota_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
     button_events: &Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 2>,
-    broker_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
+    broker_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 5>,
     charger_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, ChargerStatus, 1>,
 ) -> DisplayEvent {
     match select3(

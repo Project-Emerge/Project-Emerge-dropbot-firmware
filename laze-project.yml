@@ -4,11 +4,97 @@ imports:
       tag: v0.5.0
     dldir: ariel-os
 
+contexts:
+  # Out-of-tree chip context for the UWB anchors' STM32L432KC.
+  #
+  # ariel-os ships no board *or* chip context for this part (its only STM32L4 is the
+  # st-b-l475e-iot01a / stm32l475vg), but it does not need to: `stm32l432kc` is already a row in
+  # `src/ariel-os-stm32-mapping/stm32_mapping.csv`, and that crate's build script turns every row
+  # into a `[target.'cfg(context = "<chip>")'.dependencies]` table enabling the matching
+  # `embassy-stm32` chip feature. Naming the context after the chip is therefore all it takes to
+  # get the right metapac -- no patching of the imported tree, which `dldir` would overwrite.
+  - name: stm32l432kc
+    parent: stm32
+    selects:
+      - cortex-m4f
+    env:
+      # The 256 KiB / 64 KiB part in UFQFPN32, its only package. Spelled out in full because
+      # probe-rs refuses an ambiguous chip name. Note the pre-ariel-os anchor firmware flashed
+      # `STM32L432KBUx` (the 128 KiB sibling) while its hand-written `memory.x` declared 256 KiB;
+      # here `embassy-stm32/memory-x` derives the linker script from the metapac instead, so the
+      # two can no longer disagree.
+      PROBE_RS_CHIP: STM32L432KCUx
+
 builders:
   - name: dropbot
     parent: esp32c6
     provides:
       - has_usb_cdc_acm_port
+
+  # The UWB anchors. Custom boards with no LEDs or buttons ariel-os knows about -- the firmware
+  # claims every peripheral itself through `define_peripherals!` -- so this is a bare builder
+  # rather than a board definition.
+  - name: uwb-anchor
+    parent: stm32l432kc
+    provides:
+      # STM32 has no dedicated software interrupt, so ariel-os's interrupt executor has to borrow
+      # another peripheral's interrupt vector (`CONFIG_SWI`, consumed by
+      # `ariel-os-stm32/build.rs`, which hard-errors if it is unset). USART2 is the one sacrificed
+      # here: the anchor drives SPI1, ADC1, EXTI and GPIO only, and never any UART.
+      - has_swi
+    env:
+      CARGO_ENV:
+        - CONFIG_SWI=USART2
+
+modules:
+  # Which of the four anchors a build is. Mutually exclusive through `provides_unique`, and
+  # selected either explicitly (`laze build -b uwb-anchor -a uwb-anchor-firmware -s anchor-2`) or
+  # by `anchor-identity-default` below, which picks the master when nothing else has.
+  - name: anchor-1
+    help: build the UWB anchor as index 0, the TDMA timing master
+    provides_unique:
+      - anchor-identity
+    env:
+      global:
+        FEATURES:
+          - uwb-anchor-firmware/anchor-1
+  - name: anchor-2
+    help: build the UWB anchor as index 1
+    provides_unique:
+      - anchor-identity
+    env:
+      global:
+        FEATURES:
+          - uwb-anchor-firmware/anchor-2
+  - name: anchor-3
+    help: build the UWB anchor as index 2
+    provides_unique:
+      - anchor-identity
+    env:
+      global:
+        FEATURES:
+          - uwb-anchor-firmware/anchor-3
+  - name: anchor-4
+    help: build the UWB anchor as index 3
+    provides_unique:
+      - anchor-identity
+    env:
+      global:
+        FEATURES:
+          - uwb-anchor-firmware/anchor-4
+
+  - name: anchor-identity-default
+    help: 'private: use one of `anchor-1`..`anchor-4` instead'
+    selects:
+      # Ordered by priority, and only reached for whichever slot is still free: an explicit
+      # selection (app, context, or command line) has already taken `anchor-identity` by the time
+      # these are considered. The unconditional select at the end turns "none of them resolved"
+      # into a laze error rather than a Cargo one.
+      - ?anchor-1
+      - ?anchor-2
+      - ?anchor-3
+      - ?anchor-4
+      - anchor-identity
 
 apps:
   - name: dropbot-firmware
@@ -24,3 +110,6 @@ apps:
       - logging-over-usb
     context:
       - dropbot
+
+subdirs:
+  - anchor

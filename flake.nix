@@ -19,6 +19,7 @@
             pkg-config
             udev
             clang
+            probe-rs-tools
             pkgsCross.riscv32-embedded.buildPackages.gcc
           ];
         };

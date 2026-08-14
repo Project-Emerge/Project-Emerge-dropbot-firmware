@@ -1,0 +1,17 @@
+[package]
+name = "dropbot-estimation"
+version = "0.1.0"
+edition = "2021"
+description = "Two-stage UWB/IMU localization estimator (trilateration bootstrap + unicycle EKF)"
+
+[dependencies]
+# `core` has no transcendental float math; matches the firmware's own reasoning for depending
+# on `libm` in `src/data/imu.rs` -- this crate runs on the same soft-float target.
+libm = { version = "0.2", default-features = false }
+
+[dev-dependencies]
+# Simulation-based correctness tests run on the host under `std`, gated behind `#[cfg(test)]`.
+
+[lib]
+name = "dropbot_estimation"
+path = "src/lib.rs"

@@ -14,10 +14,10 @@ pub enum DRV8833Error<DigitalError, PwmError> {
 }
 
 pub struct DRV8833Driver<AIN1, AIN2, BIN1, BIN2, SLEEP> {
-    // Pins for controlling left motor
+    // Pins for controlling right motor
     ain1: AIN1,
     ain2: AIN2,
-    // Pins for controlling right motor
+    // Pins for controlling left motor
     bin1: BIN1,
     bin2: BIN2,
     // Pin for sleep mode
@@ -92,12 +92,12 @@ where
         match side {
             Side::Left => {
                 self.left_speed = speed;
-                Self::set_motor_output(speed, &mut self.ain1, &mut self.ain2)
+                Self::set_motor_output(speed, &mut self.bin1, &mut self.bin2)
                     .map_err(DRV8833Error::PwmError)?;
             }
             Side::Right => {
                 self.right_speed = speed;
-                Self::set_motor_output(speed, &mut self.bin1, &mut self.bin2)
+                Self::set_motor_output(speed, &mut self.ain1, &mut self.ain2)
                     .map_err(DRV8833Error::PwmError)?;
             }
         }

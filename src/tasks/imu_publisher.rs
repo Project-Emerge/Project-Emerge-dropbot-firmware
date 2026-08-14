@@ -20,9 +20,9 @@ const ERROR_LOG_INTERVAL: u32 = 250;
 #[ariel_os::task]
 pub async fn publish_imu_stream(
     topic: &'static str,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
+    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 5>,
     imu_stream_rx: Receiver<'static, CriticalSectionRawMutex, IMUTelemetry, 2>,
-    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
+    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 5>,
 ) -> ! {
     while broker_status.get().await != BrokerStatus::Connected {
         broker_status.changed().await;

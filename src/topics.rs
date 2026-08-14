@@ -8,12 +8,29 @@ use crate::device_id::DEVICE_ID_LEN;
 
 const TELEMETRY_PREFIX: &str = "/telemetry/";
 const IMU_STREAM_PREFIX: &str = "/imu/";
+const UWB_PREFIX: &str = "/uwb/";
+const POSE_PREFIX: &str = "/pose/";
 const MOTOR_COMMAND_PREFIX: &str = "/motors/";
 const OTA_CHECK_PREFIX: &str = "/ota/check/";
+
+/// Fleet-shared, unlike every topic above: every robot subscribes to and parses the same
+/// retained message and picks out its own entry, rather than each robot getting its own
+/// namespaced topic. A plain `&'static str` rather than a `Topics` field built with the device
+/// ID, since it does not have one. See `data::configurations::TagAssignmentsConfiguration` and
+/// `drivers::uwb::tag_id::resolve_from_config`.
+pub const TAG_ASSIGNMENTS_TOPIC: &str = "/config/tag-assignments";
+
+/// Fleet-shared for a stronger reason than the tag assignments: the anchors are physically shared
+/// hardware, so two robots holding different geometries for the same arena would report poses in two
+/// different coordinate frames. One retained message is the only representation where that cannot
+/// happen. See `data::configurations::AnchorsConfiguration` and `drivers::uwb::anchors`.
+pub const ANCHORS_TOPIC: &str = "/config/anchors";
 
 // Each buffer is sized to exactly what it holds: its own prefix plus the device ID.
 const TELEMETRY_LEN: usize = TELEMETRY_PREFIX.len() + DEVICE_ID_LEN;
 const IMU_STREAM_LEN: usize = IMU_STREAM_PREFIX.len() + DEVICE_ID_LEN;
+const UWB_LEN: usize = UWB_PREFIX.len() + DEVICE_ID_LEN;
+const POSE_LEN: usize = POSE_PREFIX.len() + DEVICE_ID_LEN;
 const MOTOR_COMMAND_LEN: usize = MOTOR_COMMAND_PREFIX.len() + DEVICE_ID_LEN;
 const OTA_CHECK_LEN: usize = OTA_CHECK_PREFIX.len() + DEVICE_ID_LEN;
 
@@ -26,6 +43,8 @@ const OTA_CHECK_LEN: usize = OTA_CHECK_PREFIX.len() + DEVICE_ID_LEN;
 pub enum InboundTopic {
     MotorCommand,
     OtaCheck,
+    TagAssignments,
+    Anchors,
 }
 
 impl InboundTopic {
@@ -35,6 +54,8 @@ impl InboundTopic {
         match self {
             Self::MotorCommand => "motors",
             Self::OtaCheck => "ota-check",
+            Self::TagAssignments => "tag-assignments",
+            Self::Anchors => "anchors",
         }
     }
 }
@@ -51,6 +72,8 @@ impl InboundTopic {
 pub struct Topics {
     telemetry: String<TELEMETRY_LEN>,
     imu_stream: String<IMU_STREAM_LEN>,
+    uwb: String<UWB_LEN>,
+    pose: String<POSE_LEN>,
     motor_command: String<MOTOR_COMMAND_LEN>,
     ota_check: String<OTA_CHECK_LEN>,
 }
@@ -65,6 +88,8 @@ pub fn init(device_id: &str) -> &'static Topics {
     STORAGE.init(Topics {
         telemetry: build(TELEMETRY_PREFIX, device_id),
         imu_stream: build(IMU_STREAM_PREFIX, device_id),
+        uwb: build(UWB_PREFIX, device_id),
+        pose: build(POSE_PREFIX, device_id),
         motor_command: build(MOTOR_COMMAND_PREFIX, device_id),
         ota_check: build(OTA_CHECK_PREFIX, device_id),
     })
@@ -92,13 +117,34 @@ impl Topics {
         &self.imu_stream
     }
 
+    /// Raw UWB range measurements, one message per accepted range.
+    ///
+    /// Kept alongside [`Self::pose`] rather than replaced by it: these are the input the range-bias
+    /// calibration is fitted from (see `uwb_protocol::RangeBias`) and the per-anchor coverage signal a
+    /// pose cannot carry. Off by default -- see `tasks::pose_estimator::PUBLISH_RAW_RANGES` for the
+    /// bandwidth arithmetic.
+    #[must_use]
+    pub fn uwb(&self) -> &str {
+        &self.uwb
+    }
+
+    /// The robot's own pose estimate, one message per superframe.
+    ///
+    /// This is the product the UWB stack exists to produce; `/uwb/{ID}` is its raw input.
+    #[must_use]
+    pub fn pose(&self) -> &str {
+        &self.pose
+    }
+
     /// The filters to subscribe with. Kept alongside [`Self::resolve`] so the set of topics
     /// the broker is asked for and the set that can be recognised on arrival cannot drift.
     #[must_use]
-    pub fn subscriptions(&self) -> [TopicFilter<'_>; 2] {
+    pub fn subscriptions(&self) -> [TopicFilter<'_>; 4] {
         [
             TopicFilter::new(&self.motor_command),
             TopicFilter::new(&self.ota_check),
+            TopicFilter::new(TAG_ASSIGNMENTS_TOPIC),
+            TopicFilter::new(ANCHORS_TOPIC),
         ]
     }
 
@@ -110,6 +156,10 @@ impl Topics {
             Some(InboundTopic::MotorCommand)
         } else if topic == self.ota_check.as_str() {
             Some(InboundTopic::OtaCheck)
+        } else if topic == TAG_ASSIGNMENTS_TOPIC {
+            Some(InboundTopic::TagAssignments)
+        } else if topic == ANCHORS_TOPIC {
+            Some(InboundTopic::Anchors)
         } else {
             None
         }

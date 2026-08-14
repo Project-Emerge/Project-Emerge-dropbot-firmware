@@ -3,6 +3,7 @@ pub mod button;
 pub mod commands;
 pub mod configurations;
 pub mod imu;
+pub mod localization;
 pub mod menu;
 pub mod mqtt;
 pub mod ota;
