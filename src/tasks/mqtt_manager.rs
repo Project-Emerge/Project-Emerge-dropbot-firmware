@@ -25,8 +25,8 @@ pub async fn mqtt_manager(
     device_id: &'static str,
     topics: &'static Topics,
     mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
-    broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
-    mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 2>,
+    broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 6>,
+    mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 5>,
     mqtt_receive_tx: Sender<'static, CriticalSectionRawMutex, ReceivedMessage, 2>,
 ) -> ! {
     broker_status.send(BrokerStatus::Disconnected);
@@ -42,7 +42,15 @@ pub async fn mqtt_manager(
     let mut tcp_socket = TcpSocket::new(stack, &mut tcp_rx_buffer, &mut tcp_tx_buffer);
 
     let broker = Ipv4Address::from_str(MQTT_SERVER_HOST).unwrap();
-    let rx = &mut [0u8; 256];
+    // Like `tx` below, this has to hold a whole *incoming* packet -- MQTT fixed header, topic
+    // and payload together, not just the payload -- and minimq errors the whole session out
+    // (`Error::MalformedPacket`) if a packet doesn't fit rather than truncating it. 256 was
+    // sized for the small per-robot topics and was never enough for the retained fleet configs
+    // on `topics::ANCHORS_TOPIC` and `topics::TAG_ASSIGNMENTS_TOPIC`: even the minimal
+    // four-anchor `AnchorsConfiguration` below runs to ~360 bytes on the wire, so publishing
+    // one made every reconnect immediately re-fail on the redelivered retained message,
+    // producing exactly the "no surveyed position" warning `tasks::pose_estimator` logs.
+    let rx = &mut [0u8; 1536];
     // The transmit buffer has to hold a whole outgoing packet, and the largest one this
     // firmware sends by a wide margin is the telemetry payload -- which carries the IMU's
     // nine axes twice over, raw and filtered.

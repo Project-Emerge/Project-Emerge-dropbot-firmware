@@ -10,6 +10,8 @@ use crate::pins;
 
 /// How long the button has to be held down before the board powers itself off.
 const POWER_OFF_HOLD: Duration = Duration::from_secs(3);
+/// A deliberate hold shorter than power-off proves local physical presence for provisioning.
+const CALIBRATION_HOLD: Duration = Duration::from_millis(1500);
 /// Contact bounce is ridden out by ignoring the line for this long after each transition.
 const DEBOUNCE: Duration = Duration::from_millis(30);
 /// Grace period between announcing the power-off and actually cutting the supply, so the
@@ -26,6 +28,7 @@ const POWER_OFF_NOTICE: Duration = Duration::from_millis(700);
 pub async fn manage_power_button(
     pins: pins::PowerManagementPins,
     button_events: Sender<'static, CriticalSectionRawMutex, ButtonEvent, 2>,
+    calibration_arm: Sender<'static, CriticalSectionRawMutex, (), 1>,
 ) -> ! {
     // Latch the supply first: until this is high, the board is alive only because the user
     // is still holding the button down.
@@ -58,7 +61,7 @@ pub async fn manage_power_button(
 
         match select(
             button.wait_for_high(),
-            Timer::after(POWER_OFF_HOLD - DEBOUNCE),
+            Timer::after(CALIBRATION_HOLD - DEBOUNCE),
         )
         .await
         {
@@ -72,17 +75,32 @@ pub async fn manage_power_button(
                 Timer::after(DEBOUNCE).await;
             }
             Either::Second(()) => {
-                info!("button: held down, powering off");
-                let _ = button_events.try_send(ButtonEvent::LongPress);
-                Timer::after(POWER_OFF_NOTICE).await;
-                kill.set_low();
+                match select(
+                    button.wait_for_high(),
+                    Timer::after(POWER_OFF_HOLD - CALIBRATION_HOLD),
+                )
+                .await
+                {
+                    Either::First(()) => {
+                        info!("button: calibration provisioning window requested");
+                        let _ = calibration_arm.try_send(());
+                        let _ = button_events.try_send(ButtonEvent::CalibrationPress);
+                        Timer::after(DEBOUNCE).await;
+                    }
+                    Either::Second(()) => {
+                        info!("button: held down, powering off");
+                        let _ = button_events.try_send(ButtonEvent::LongPress);
+                        Timer::after(POWER_OFF_NOTICE).await;
+                        kill.set_low();
 
-                // The supply is gone by now. If it is not -- the board is running off the
-                // programmer's USB, which bypasses the latch -- park here rather than arm
-                // the button again, so the board stays "off" until it is reset.
-                info!("button: power latch released");
-                loop {
-                    Timer::after(Duration::from_secs(1)).await;
+                        // The supply is gone by now. If it is not -- the board is running off the
+                        // programmer's USB, which bypasses the latch -- park here rather than arm
+                        // the button again, so the board stays "off" until it is reset.
+                        info!("button: power latch released");
+                        loop {
+                            Timer::after(Duration::from_secs(1)).await;
+                        }
+                    }
                 }
             }
         }

@@ -1,0 +1,31 @@
+# Hardware identity and antenna delay compiled into each anchor image.
+#
+# `expected_uid` is the 96-bit STM32 UID returned by `embassy_stm32::uid::uid()`, encoded as
+# 24 hexadecimal digits in byte order. An empty value is deliberately *not* a wildcard: that
+# anchor is unprovisioned and its firmware will refuse to start UWB ranging. Use
+# `uwb-calibrate provision-anchor` after reading the UID from the SWD/RTT boot log.
+schema_version = 1
+
+[[anchors]]
+anchor_id = "A001"
+expected_uid = "620029001450425943313720"
+rx_ticks = 16366
+tx_ticks = 16366
+
+[[anchors]]
+anchor_id = "A002"
+expected_uid = "2E0053001550425943313720"
+rx_ticks = 16367
+tx_ticks = 16367
+
+[[anchors]]
+anchor_id = "A003"
+expected_uid = "29004C001450425943313720"
+rx_ticks = 16364
+tx_ticks = 16364
+
+[[anchors]]
+anchor_id = "A004"
+expected_uid = "4C0031001450425943313720"
+rx_ticks = 16362
+tx_ticks = 16362

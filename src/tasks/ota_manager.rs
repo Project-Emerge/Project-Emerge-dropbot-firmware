@@ -11,6 +11,7 @@ use ariel_os::reexports::embassy_net::{
 use ariel_os::time::{Duration, Timer};
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use embedded_io_async::Read as _;
@@ -22,8 +23,9 @@ use esp_storage::FlashStorage;
 use reqwless::client::HttpClient;
 use reqwless::request::Method;
 
+use crate::data::calibration::{CalibrationWriteRequest, CalibrationWriteResult};
 use crate::data::ota::{FirmwareManifest, OtaStatus};
-use crate::pins;
+use crate::drivers::calibration_storage::{self, LoadedCalibration};
 
 /// Broadcast channel carrying [`OtaStatus`] to the display and the motor controller.
 type OtaStatusSender = WatchSender<'static, CriticalSectionRawMutex, OtaStatus, 2>;
@@ -91,11 +93,17 @@ fn publish_status(ota_status: &OtaStatusSender, status: OtaStatus) {
 pub async fn manage_ota(
     mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
     ota_check_request: &'static Signal<CriticalSectionRawMutex, ()>,
-    pins: pins::OtaPeripherals,
+    mut flash: FlashStorage<'static>,
+    mut antenna_calibration: LoadedCalibration,
+    calibration_write_rx: Receiver<'static, CriticalSectionRawMutex, CalibrationWriteRequest, 1>,
+    calibration_write_result_tx: Sender<
+        'static,
+        CriticalSectionRawMutex,
+        CalibrationWriteResult,
+        1,
+    >,
     ota_status: OtaStatusSender,
 ) -> ! {
-    let mut flash = FlashStorage::new(pins.flash);
-
     // If we just rebooted into a freshly installed slot, confirm it as working so the
     // bootloader (when built with auto-rollback support) doesn't revert it later.
     {
@@ -122,9 +130,43 @@ pub async fn manage_ota(
     let stack = net::network_stack().await.unwrap();
 
     loop {
-        match select(Timer::after(OTA_POLL_INTERVAL), ota_check_request.wait()).await {
-            Either::First(()) => debug!("ota: periodic check"),
-            Either::Second(()) => info!("ota: manual check requested"),
+        let ota_trigger = select(Timer::after(OTA_POLL_INTERVAL), ota_check_request.wait());
+        match select(ota_trigger, calibration_write_rx.receive()).await {
+            Either::First(Either::First(())) => debug!("ota: periodic check"),
+            Either::First(Either::Second(())) => info!("ota: manual check requested"),
+            Either::Second(request) => {
+                let result = match calibration_storage::store(
+                    &mut flash,
+                    antenna_calibration,
+                    request.rx_ticks,
+                    request.tx_ticks,
+                ) {
+                    Ok(saved) => {
+                        antenna_calibration = saved;
+                        info!(
+                            "calibration: persisted robot antenna delay generation {}: RX {}, TX {}",
+                            saved.record.generation, saved.record.rx_ticks, saved.record.tx_ticks,
+                        );
+                        CalibrationWriteResult::Saved {
+                            session_id: request.session_id,
+                            generation: saved.record.generation,
+                            rx_ticks: saved.record.rx_ticks,
+                            tx_ticks: saved.record.tx_ticks,
+                        }
+                    }
+                    Err(err) => {
+                        error!(
+                            "calibration: persisting robot antenna delay failed: {:?}",
+                            Debug2Format(&err)
+                        );
+                        CalibrationWriteResult::Failed {
+                            session_id: request.session_id,
+                        }
+                    }
+                };
+                calibration_write_result_tx.send(result).await;
+                continue;
+            }
         }
 
         match check_and_apply_update(stack, &mut flash, &ota_status).await {

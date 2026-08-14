@@ -8,14 +8,47 @@ use crate::device_id::DEVICE_ID_LEN;
 
 const TELEMETRY_PREFIX: &str = "/telemetry/";
 const IMU_STREAM_PREFIX: &str = "/imu/";
+const UWB_PREFIX: &str = "/uwb/";
+const POSE_PREFIX: &str = "/pose/";
 const MOTOR_COMMAND_PREFIX: &str = "/motors/";
 const OTA_CHECK_PREFIX: &str = "/ota/check/";
+/// Per-robot, unlike the three fleet-shared `/config/...` topics below: what it carries -- how hard
+/// and how smoothly *this* chassis may be driven -- is a property of the individual robot, so each
+/// one gets its own retained message under this prefix.
+const ROBOT_CONFIG_PREFIX: &str = "/config/robots/";
+const CALIBRATION_COMMAND_PREFIX: &str = "/calibration/command/";
+const CALIBRATION_STATUS_PREFIX: &str = "/calibration/status/";
+const CALIBRATION_SAMPLES_PREFIX: &str = "/calibration/samples/";
+
+/// Fleet-shared, unlike every topic above: every robot subscribes to and parses the same
+/// retained message and picks out its own entry, rather than each robot getting its own
+/// namespaced topic. A plain `&'static str` rather than a `Topics` field built with the device
+/// ID, since it does not have one. See `data::configurations::TagAssignmentsConfiguration` and
+/// `drivers::uwb::tag_id::resolve_from_config`.
+pub const TAG_ASSIGNMENTS_TOPIC: &str = "/config/tag-assignments";
+
+/// Fleet-shared for a stronger reason than the tag assignments: the anchors are physically shared
+/// hardware, so two robots holding different geometries for the same arena would report poses in two
+/// different coordinate frames. One retained message is the only representation where that cannot
+/// happen. See `data::configurations::AnchorsConfiguration` and `drivers::uwb::anchors`.
+pub const ANCHORS_TOPIC: &str = "/config/anchors";
+
+/// How the pose is estimated -- filter on, or raw UWB trilateration only. Fleet-shared like the two
+/// above, since the comparison it exists for is only meaningful when every robot is answering the
+/// same way. See `data::configurations::EstimationConfiguration` and `tasks::pose_estimator`.
+pub const ESTIMATION_TOPIC: &str = "/config/estimation";
 
 // Each buffer is sized to exactly what it holds: its own prefix plus the device ID.
 const TELEMETRY_LEN: usize = TELEMETRY_PREFIX.len() + DEVICE_ID_LEN;
 const IMU_STREAM_LEN: usize = IMU_STREAM_PREFIX.len() + DEVICE_ID_LEN;
+const UWB_LEN: usize = UWB_PREFIX.len() + DEVICE_ID_LEN;
+const POSE_LEN: usize = POSE_PREFIX.len() + DEVICE_ID_LEN;
 const MOTOR_COMMAND_LEN: usize = MOTOR_COMMAND_PREFIX.len() + DEVICE_ID_LEN;
 const OTA_CHECK_LEN: usize = OTA_CHECK_PREFIX.len() + DEVICE_ID_LEN;
+const ROBOT_CONFIG_LEN: usize = ROBOT_CONFIG_PREFIX.len() + DEVICE_ID_LEN;
+const CALIBRATION_COMMAND_LEN: usize = CALIBRATION_COMMAND_PREFIX.len() + DEVICE_ID_LEN;
+const CALIBRATION_STATUS_LEN: usize = CALIBRATION_STATUS_PREFIX.len() + DEVICE_ID_LEN;
+const CALIBRATION_SAMPLES_LEN: usize = CALIBRATION_SAMPLES_PREFIX.len() + DEVICE_ID_LEN;
 
 /// Which subscription an inbound message arrived on.
 ///
@@ -26,6 +59,11 @@ const OTA_CHECK_LEN: usize = OTA_CHECK_PREFIX.len() + DEVICE_ID_LEN;
 pub enum InboundTopic {
     MotorCommand,
     OtaCheck,
+    TagAssignments,
+    Anchors,
+    Estimation,
+    RobotConfig,
+    CalibrationCommand,
 }
 
 impl InboundTopic {
@@ -35,6 +73,11 @@ impl InboundTopic {
         match self {
             Self::MotorCommand => "motors",
             Self::OtaCheck => "ota-check",
+            Self::TagAssignments => "tag-assignments",
+            Self::Anchors => "anchors",
+            Self::Estimation => "estimation",
+            Self::RobotConfig => "robot-config",
+            Self::CalibrationCommand => "calibration-command",
         }
     }
 }
@@ -51,8 +94,15 @@ impl InboundTopic {
 pub struct Topics {
     telemetry: String<TELEMETRY_LEN>,
     imu_stream: String<IMU_STREAM_LEN>,
+    uwb: String<UWB_LEN>,
+    pose: String<POSE_LEN>,
     motor_command: String<MOTOR_COMMAND_LEN>,
     ota_check: String<OTA_CHECK_LEN>,
+    robot_config: String<ROBOT_CONFIG_LEN>,
+    calibration_command: String<CALIBRATION_COMMAND_LEN>,
+    calibration_status: String<CALIBRATION_STATUS_LEN>,
+    #[cfg_attr(not(feature = "calibration-fixture"), allow(dead_code))]
+    calibration_samples: String<CALIBRATION_SAMPLES_LEN>,
 }
 
 static STORAGE: StaticCell<Topics> = StaticCell::new();
@@ -65,8 +115,14 @@ pub fn init(device_id: &str) -> &'static Topics {
     STORAGE.init(Topics {
         telemetry: build(TELEMETRY_PREFIX, device_id),
         imu_stream: build(IMU_STREAM_PREFIX, device_id),
+        uwb: build(UWB_PREFIX, device_id),
+        pose: build(POSE_PREFIX, device_id),
         motor_command: build(MOTOR_COMMAND_PREFIX, device_id),
         ota_check: build(OTA_CHECK_PREFIX, device_id),
+        robot_config: build(ROBOT_CONFIG_PREFIX, device_id),
+        calibration_command: build(CALIBRATION_COMMAND_PREFIX, device_id),
+        calibration_status: build(CALIBRATION_STATUS_PREFIX, device_id),
+        calibration_samples: build(CALIBRATION_SAMPLES_PREFIX, device_id),
     })
 }
 
@@ -86,19 +142,54 @@ impl Topics {
     }
 
     /// High-rate IMU samples, on their own topic so a subscriber that only wants the status
-    /// bundle does not have to read fifty messages a second.
+    /// bundle does not have to read ten messages a second.
     #[must_use]
     pub fn imu_stream(&self) -> &str {
         &self.imu_stream
     }
 
+    /// Raw UWB range measurements, one message per accepted range.
+    ///
+    /// Kept alongside [`Self::pose`] rather than replaced by it: these are the input the range-bias
+    /// calibration is fitted from (see `uwb_protocol::RangeBias`) and the per-anchor coverage signal a
+    /// pose cannot carry. Off by default -- enable
+    /// `data::configurations::EstimationConfiguration::publish_raw_ranges` for a calibration capture.
+    #[must_use]
+    pub fn uwb(&self) -> &str {
+        &self.uwb
+    }
+
+    /// The robot's own pose estimate, one message per superframe.
+    ///
+    /// This is the product the UWB stack exists to produce; `/uwb/{ID}` is its raw input.
+    #[must_use]
+    pub fn pose(&self) -> &str {
+        &self.pose
+    }
+
+    #[must_use]
+    pub fn calibration_status(&self) -> &str {
+        &self.calibration_status
+    }
+
+    #[must_use]
+    #[cfg_attr(not(feature = "calibration-fixture"), allow(dead_code))]
+    pub fn calibration_samples(&self) -> &str {
+        &self.calibration_samples
+    }
+
     /// The filters to subscribe with. Kept alongside [`Self::resolve`] so the set of topics
     /// the broker is asked for and the set that can be recognised on arrival cannot drift.
     #[must_use]
-    pub fn subscriptions(&self) -> [TopicFilter<'_>; 2] {
+    pub fn subscriptions(&self) -> [TopicFilter<'_>; 7] {
         [
             TopicFilter::new(&self.motor_command),
             TopicFilter::new(&self.ota_check),
+            TopicFilter::new(TAG_ASSIGNMENTS_TOPIC),
+            TopicFilter::new(ANCHORS_TOPIC),
+            TopicFilter::new(ESTIMATION_TOPIC),
+            TopicFilter::new(&self.robot_config),
+            TopicFilter::new(&self.calibration_command),
         ]
     }
 
@@ -110,6 +201,16 @@ impl Topics {
             Some(InboundTopic::MotorCommand)
         } else if topic == self.ota_check.as_str() {
             Some(InboundTopic::OtaCheck)
+        } else if topic == TAG_ASSIGNMENTS_TOPIC {
+            Some(InboundTopic::TagAssignments)
+        } else if topic == ANCHORS_TOPIC {
+            Some(InboundTopic::Anchors)
+        } else if topic == ESTIMATION_TOPIC {
+            Some(InboundTopic::Estimation)
+        } else if topic == self.robot_config.as_str() {
+            Some(InboundTopic::RobotConfig)
+        } else if topic == self.calibration_command.as_str() {
+            Some(InboundTopic::CalibrationCommand)
         } else {
             None
         }

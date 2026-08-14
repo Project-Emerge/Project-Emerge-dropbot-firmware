@@ -1,0 +1,25 @@
+[package]
+name = "dw3000-hal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Pinned exactly, and for the same reason both firmwares pin it: `dw3000-ng` currently accepts
+# newer releases whose MSRV is ahead of the toolchain this project builds with. `rssi` is
+# deliberately off -- it makes `r_wait` compute the first-path signal power inline (several extra
+# register reads plus a software `log10f`) on every receive, inside the reply deadline.
+dw3000-ng = { version = "=1.0.2", default-features = false, features = ["async"] }
+embedded-hal-async = "1.0"
+# `with_timeout` for the IRQ waits. This is the same crate ariel-os re-exports as `ariel_os::time`
+# (and as `ariel_os::reexports::embassy_time`), resolved through the `[patch.crates-io]` table in
+# `build/imports/ariel-os/ariel-os-cargo.toml` -- which the repo-root `.cargo/config.toml`
+# includes -- so it unifies with the copy the HAL registers its time driver against rather than
+# compiling a second, driverless one.
+embassy-time = { version = "0.5", default-features = false }
+# For `Ieee802154Address`/`Ieee802154Pan`, which `set_address` needs. `dw3000-ng` already wraps
+# every frame in an 802.15.4 header using these same types, so this only names a version
+# compatible with what it pulls in.
+smoltcp = { version = "0.13", default-features = false, features = [
+  "medium-ieee802154",
+] }
+uwb-protocol = { path = "../uwb-protocol" }

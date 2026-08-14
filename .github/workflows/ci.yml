@@ -59,7 +59,21 @@ jobs:
         run: laze build -b "${BUILDER}" -a "${FIRMWARE_NAME}" -G
 
       - name: Check formatting
-        run: cargo fmt --check
+        run: |
+          cargo fmt --check
+          for manifest in anchor crates/uwb-protocol crates/dw3000-hal crates/dropbot-estimation; do
+            cargo fmt --check --manifest-path "${manifest}/Cargo.toml"
+          done
+
+      # The shared crates are the host-testable half of the UWB stack: the wire format, the TDMA
+      # timing tables, the ranging arithmetic and the estimator, none of which touch hardware.
+      # `--manifest-path` rather than a workspace-wide `-p`, because there deliberately is no
+      # workspace -- see the note at the top of `Cargo.toml`.
+      - name: Run shared-crate host tests
+        run: |
+          for crate in uwb-protocol dropbot-estimation; do
+            cargo test --manifest-path "crates/${crate}/Cargo.toml"
+          done
 
       - name: Lint with Clippy
         # Advisory only: does not fail the build. `ariel-os` is a path dependency, so
@@ -81,6 +95,72 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ env.FIRMWARE_NAME }}-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  anchor:
+    name: UWB anchor QA
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: nix develop -c bash -e {0}
+    env:
+      ANCHOR_NAME: uwb-anchor-firmware
+      ANCHOR_BUILDER: uwb-anchor
+      ANCHOR_TARGET: thumbv7em-none-eabihf
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Cargo/laze cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            ~/.gitcache
+          key: cargo-${{ runner.os }}-${{ env.ANCHOR_TARGET }}-${{ hashFiles('anchor/Cargo.lock', 'anchor/Cargo.toml', '.cargo/config.toml', 'laze-project.yml', 'anchor/laze.yml', 'flake.lock', 'flake.nix') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ env.ANCHOR_TARGET }}-
+
+      - name: Install Rust target for ${{ env.ANCHOR_TARGET }}
+        run: |
+          rustup target add "${ANCHOR_TARGET}"
+          rustup component add rust-src llvm-tools
+
+      # laze scopes `-a` to apps defined in the working directory, so the anchor app -- declared in
+      # `anchor/laze.yml` -- is reached with `-C anchor`, ariel-os's own documented idiom for
+      # multi-app trees. Everything else (contexts, the `stm32l432kc` chip context, the anchor
+      # identity modules) still comes from the root `laze-project.yml`.
+      - name: Lint with Clippy
+        # Advisory only, same as the dropbot job.
+        run: laze -C anchor build -b "${ANCHOR_BUILDER}" -a "${ANCHOR_NAME}" clippy
+
+      # All four identities, because each is a separate binary in the field and a mistake in the
+      # `anchor-N` feature plumbing would only show up on whichever one CI didn't build.
+      - name: Build all four anchor identities
+        run: |
+          for identity in anchor-1 anchor-2 anchor-3 anchor-4; do
+            laze -C anchor build -b "${ANCHOR_BUILDER}" -a "${ANCHOR_NAME}" -s "${identity}"
+            mkdir -p dist
+            cp "build/bin/${ANCHOR_BUILDER}/cargo/${ANCHOR_TARGET}/release/${ANCHOR_NAME}" \
+               "dist/${ANCHOR_NAME}-${identity}.elf"
+          done
+          sha256sum dist/*.elf > dist/SHA256SUMS
+
+      - name: Upload anchor artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ env.ANCHOR_NAME }}-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
           compression-level: 0
@@ -136,6 +216,7 @@ jobs:
   success:
     needs:
       - firmware
+      - anchor
       - release
     runs-on: ubuntu-latest
     if: ${{ always() }}
@@ -146,12 +227,14 @@ jobs:
         shell: bash -e {0}
         run: |
           firmware_result="${{ needs.firmware.result }}"
+          anchor_result="${{ needs.anchor.result }}"
           release_result="${{ needs.release.result }}"
 
           echo "firmware: ${firmware_result}"
+          echo "anchor: ${anchor_result}"
           echo "release: ${release_result}"
 
-          if [ "${firmware_result}" != "success" ]; then
+          if [ "${firmware_result}" != "success" ] || [ "${anchor_result}" != "success" ]; then
             exit 1
           fi
 

@@ -14,15 +14,15 @@ const ERROR_LOG_INTERVAL: u32 = 250;
 ///
 /// Separate from `publish_telemetry` because the two carry different contracts. That one
 /// sends a once-a-second status summary; this one sends the dead-reckoning input a UWB
-/// localization filter integrates between range fixes, at fifty times the rate. Sharing a
+/// localization filter integrates between range fixes, at ten times the rate. Sharing a
 /// topic would either starve the fusion consumer or force every subscriber that only wants
-/// a battery percentage to parse fifty messages a second.
+/// a battery percentage to parse ten messages a second.
 #[ariel_os::task]
 pub async fn publish_imu_stream(
     topic: &'static str,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
+    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 6>,
     imu_stream_rx: Receiver<'static, CriticalSectionRawMutex, IMUTelemetry, 2>,
-    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
+    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 5>,
 ) -> ! {
     while broker_status.get().await != BrokerStatus::Connected {
         broker_status.changed().await;

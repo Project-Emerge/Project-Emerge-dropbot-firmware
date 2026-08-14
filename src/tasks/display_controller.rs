@@ -23,6 +23,8 @@ use crate::traits::{BatteryPage, DisplayController, NetworkPage};
 
 const POWER_OFF_TITLE: &str = "POWERING OFF";
 const POWER_OFF_MESSAGE: &str = "Bye!";
+const CALIBRATION_TITLE: &str = "CALIBRATION";
+const CALIBRATION_MESSAGE: &str = "ARMED 60 SECONDS";
 
 /// The network the firmware was built to join. ariel-os reads the same variable to
 /// configure the Wi-Fi driver, so this always names the network actually being joined.
@@ -48,7 +50,7 @@ pub async fn manage_display(
     network_status: &'static Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
     mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
     button_events: Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 2>,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
+    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 6>,
     mut charger_status: WatchReceiver<'static, CriticalSectionRawMutex, ChargerStatus, 1>,
 ) -> ! {
     let mut display = SD1306Driver::new(i2c, 0x3C);
@@ -118,6 +120,11 @@ pub async fn manage_display(
                 }
                 draw_page(&mut display, page, device_id, address, broker, charger).await
             }
+            DisplayEvent::Button(ButtonEvent::CalibrationPress) => {
+                display
+                    .draw_notice(CALIBRATION_TITLE, CALIBRATION_MESSAGE)
+                    .await
+            }
             DisplayEvent::Button(ButtonEvent::LongPress) => {
                 if let Err(e) = display
                     .draw_notice(POWER_OFF_TITLE, POWER_OFF_MESSAGE)
@@ -168,7 +175,7 @@ async fn next_event(
     network_status: &Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
     ota_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
     button_events: &Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 2>,
-    broker_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
+    broker_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 6>,
     charger_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, ChargerStatus, 1>,
 ) -> DisplayEvent {
     match select3(

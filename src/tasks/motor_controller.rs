@@ -1,14 +1,15 @@
 use ariel_os::gpio::Output;
 use ariel_os::log::{Debug2Format, error, info, warn};
 use ariel_os::time::Timer;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
-use embassy_sync::watch::Receiver as WatchReceiver;
+use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode};
 use esp_hal::time::Rate;
 
 use crate::data;
+use crate::data::configurations::MotorsConfiguration;
 use crate::data::ota::OtaStatus;
 use crate::data::telemetry::MotorTelemetry;
 use crate::drivers::motor_driver::{DRV8833Driver, types::MotorConfig};
@@ -21,6 +22,10 @@ pub async fn manage_motor_controller(
     motor_telemetry: Sender<'static, CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2>,
     motor_command: Receiver<'static, CriticalSectionRawMutex, data::commands::DriveCommand, 2>,
     mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
+    forward_duty: WatchSender<'static, CriticalSectionRawMutex, f32, 2>,
+    mut motors_config: WatchReceiver<'static, CriticalSectionRawMutex, MotorsConfiguration, 1>,
+    mut calibration_interlock: WatchReceiver<'static, CriticalSectionRawMutex, bool, 1>,
+    calibration_safe: Sender<'static, CriticalSectionRawMutex, (), 1>,
 ) -> ! {
     let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(32)).unwrap();
     let mut pwm_module = McPwm::new(pins.pwm_device, clock_cfg);
@@ -50,6 +55,24 @@ pub async fn manage_motor_controller(
         DRV8833Driver::new(ain1, ain2, bin1, bin2, sleep_pin, MotorConfig::default());
 
     loop {
+        // Polled at the top of every pass rather than given a `select` branch of its own, the same
+        // way `tasks::pose_estimator` polls its own configuration: a `Watch::try_changed` is a lock
+        // and a compare, and this loop already runs at least every 3 s.
+        if let Some(config) = motors_config.try_changed() {
+            let config = config.sanitized();
+            info!(
+                "motors: configuration updated, max speed {}, ema alpha {:?}",
+                config.max_speed,
+                Debug2Format(&config.ema_filter_alpha)
+            );
+            if let Err(e) = motor_driver.set_config(MotorConfig::from(config)) {
+                error!(
+                    "motors: applying new configuration failed: {:?}",
+                    Debug2Format(&e)
+                );
+            }
+        }
+
         // An OTA update is about to overwrite this firmware and reboot into it. Cut the
         // motors and hold them de-energized for its whole duration, so the robot cannot
         // drive off unattended across the reboot. `set_speed` drives SLEEP high again, so
@@ -66,13 +89,18 @@ pub async fn manage_motor_controller(
             info!("motors: OTA update ended, resuming");
         }
 
-        match select(
+        match select3(
             motor_command.receive(),
             Timer::after(ariel_os::time::Duration::from_secs(3)),
+            calibration_interlock.changed(),
         )
         .await
         {
-            Either::First(command) => {
+            Either3::First(command) => {
+                if calibration_interlock.try_get() == Some(true) {
+                    warn!("motors: movement command rejected by calibration interlock");
+                    continue;
+                }
                 info!("motors: received command: {:?}", Debug2Format(&command));
                 match command {
                     data::commands::DriveCommand::Move { left, right } => {
@@ -92,15 +120,34 @@ pub async fn manage_motor_controller(
                     }
                 }
             }
-            Either::Second(()) => {
+            Either3::Second(()) => {
                 warn!("motors: no command received for 3s, stopping");
                 if let Err(e) = motor_driver.stop() {
                     error!("motors: stop failed: {:?}", Debug2Format(&e));
                 }
             }
+            Either3::Third(locked) => {
+                if locked {
+                    if let Err(e) = motor_driver.stop().and_then(|()| motor_driver.sleep()) {
+                        error!(
+                            "motors: calibration interlock failed: {:?}",
+                            Debug2Format(&e)
+                        );
+                    } else {
+                        forward_duty.send(0.0);
+                        let _ = motor_telemetry.try_send(MotorTelemetry::Stopped);
+                        calibration_safe.send(()).await;
+                        info!("motors: bridge disabled by calibration interlock");
+                    }
+                } else {
+                    info!("motors: calibration interlock released");
+                }
+                continue;
+            }
         };
         match motor_driver.get_status() {
             Ok(MotorStatus::Stopped) => {
+                forward_duty.send(0.0);
                 motor_telemetry
                     .try_send(MotorTelemetry::Stopped)
                     .unwrap_or_else(|e| {
@@ -108,6 +155,12 @@ pub async fn manage_motor_controller(
                     });
             }
             Ok(MotorStatus::Motoring { left, right }) => {
+                // The mean of the two signed side duties is the forward component; their difference is
+                // the turn, which the pose estimator takes from the gyroscope instead. Reported from
+                // `get_status` rather than from the command, so it reflects what the driver's own
+                // slew-rate filter actually applied. This is the only forward-motion input the
+                // estimator has -- the robots have no wheel encoders.
+                forward_duty.send(0.5 * (left + right));
                 motor_telemetry
                     .try_send(MotorTelemetry::Motoring { left, right })
                     .unwrap_or_else(|e| {

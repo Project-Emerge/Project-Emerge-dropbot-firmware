@@ -2,6 +2,7 @@ use ariel_os::log::{Debug2Format, debug, error, info};
 use ariel_os::time::{Duration, Instant, Timer};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Sender;
+use embassy_sync::watch::Sender as WatchSender;
 
 use crate::data::imu::{FilteredImu, ImuFilter, ImuSample};
 use crate::data::telemetry::IMUTelemetry;
@@ -22,18 +23,25 @@ use crate::traits::Imu;
 /// display and the charger.
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(10);
 
-/// How often a sample goes out on the IMU stream topic: 50 Hz.
+/// How often a sample goes out on the IMU stream topic: 10 Hz.
 ///
-/// This is the knob to turn if the link is the constraint. A sample serializes to about 560
-/// bytes of JSON, so 50 Hz costs roughly 27 kB/s per robot -- unremarkable for one, worth
-/// reconsidering for a swarm sharing a broker. Lowering it costs the fusion filter
-/// dead-reckoning resolution between UWB fixes; a more compact encoding than JSON would buy
-/// most of the same bandwidth back without that cost.
+/// Down from 50 Hz, and the reasoning changed rather than the arithmetic. A sample serializes to about
+/// 560 bytes of JSON, so 50 Hz was ~27 kB/s per robot -- **~2.7 Mbit/s across twelve robots** on one
+/// 2.4 GHz access point, which is marginal before anything else shares the link.
+///
+/// What made 50 Hz worth that was the fusion filter: it was going to run off this stream, so the rate
+/// bought it dead-reckoning resolution between UWB fixes. It no longer does. `tasks::pose_estimator`
+/// runs onboard and takes every sample at the full [`SAMPLE_INTERVAL`] over `IMU_FUSION`, without
+/// touching the network at all, so this topic is now purely for observers -- dashboards, logging, a
+/// human watching attitude -- and 10 Hz is plenty for that at a fifth of the bandwidth.
+///
+/// Raise it for an offline analysis session if the link can take it; a more compact encoding than JSON
+/// would buy most of the same bandwidth back without the rate cost.
 ///
 /// Note that the stream is decimated from [`SAMPLE_INTERVAL`], so the `raw` axes of a
 /// published sample are that sample's own -- the ones sampled in between are folded into the
 /// filtered values but never leave the board.
-const STREAM_INTERVAL: Duration = Duration::from_millis(20);
+const STREAM_INTERVAL: Duration = Duration::from_millis(100);
 
 /// How often a sample makes it into the aggregated telemetry. The aggregator republishes
 /// once a second, so anything faster is dropped on its floor anyway; twice a second means
@@ -45,8 +53,9 @@ const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Samples the nine-axis IMU, filters it, and publishes both versions on two paths.
 ///
-/// `imu_stream` carries every published sample at [`STREAM_INTERVAL`] and is what feeds the
-/// UWB localization filter; `imu_telemetry` carries a much slower trickle into the
+/// `imu_fusion` carries every sample at [`SAMPLE_INTERVAL`] to the onboard pose estimator;
+/// `imu_stream` carries a decimated copy at [`STREAM_INTERVAL`] out over MQTT for observers;
+/// `imu_telemetry` carries a much slower trickle into the
 /// once-a-second status payload. They are separate because the two consumers want opposite
 /// things: one needs rate, the other needs to not drown the battery and network readings it
 /// is bundled with.
@@ -60,6 +69,7 @@ pub async fn monitor_imu(
     magnetic_i2c: BoardI2cDevice,
     imu_stream: Sender<'static, CriticalSectionRawMutex, IMUTelemetry, 2>,
     imu_telemetry: Sender<'static, CriticalSectionRawMutex, IMUTelemetry, 2>,
+    imu_fusion: WatchSender<'static, CriticalSectionRawMutex, IMUTelemetry, 1>,
 ) -> ! {
     let mut imu = Imu9Axis::new(inertial_i2c, magnetic_i2c);
 
@@ -103,6 +113,13 @@ pub async fn monitor_imu(
             sampled_at = now;
 
             let filtered = filter.update(&sample, timestep);
+
+            // The fusion estimator gets every sample, at the full sampling rate rather than the
+            // decimated stream rate: it integrates these to carry the pose between UWB fixes, and
+            // halving the integration interval halves that error. A `Watch` rather than a queue
+            // because a sample it did not get in time is worth nothing to it -- widening the next
+            // timestep is strictly better than delivering a stale one late.
+            imu_fusion.send(telemetry(now, &sample, &filtered));
 
             if now - streamed_at >= STREAM_INTERVAL {
                 streamed_at = now;

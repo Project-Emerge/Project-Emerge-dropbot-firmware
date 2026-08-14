@@ -10,9 +10,9 @@ use crate::data::telemetry::Telemetry;
 #[ariel_os::task]
 pub async fn publish_telemetry(
     topic: &'static str,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 3>,
+    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 6>,
     aggregated_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, Telemetry, 1>,
-    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 2>,
+    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 5>,
 ) -> ! {
     // Hold off until the broker session comes up the first time. Later drops are not
     // waited on: the manager drains its queue on reconnect, so anything queued meanwhile

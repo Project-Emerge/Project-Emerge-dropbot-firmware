@@ -1,0 +1,11 @@
+[package]
+name = "dropbot-calibration"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+uwb-protocol = { path = "../uwb-protocol" }
+

@@ -634,14 +634,15 @@ impl HardIron {
     /// Whether the board has been round enough of the circle for [`HardIron::offset`] to be
     /// an estimate rather than a guess.
     ///
-    /// Counting sectors rather than measuring how far each axis has swung, which is the
-    /// obvious test and does not work: a quarter turn already swings both horizontal axes
-    /// across most of their range, so a span threshold passes while the box is still a
-    /// quarter of the circle and its centre is out by most of the field strength. Measured on
-    /// the bench, the span test announced itself ready after 86° with the offset wrong by
-    /// 15.7 µT -- and a wrong offset does not merely make the bearing wrong, it makes it wrong
-    /// in a way that slowly corrects itself as the estimate improves, which reads as a bearing
-    /// that drifts for half a minute after the robot stops.
+    /// This counts sectors rather than measuring how far each axis has swung. The span test is the
+    /// obvious one and it does not work: a quarter turn already swings both horizontal axes across
+    /// most of their range. So the threshold passes while the box is still a quarter of the circle,
+    /// with its centre out by most of the field strength. Measured on the bench, the span test
+    /// announced itself ready after 86°, with the offset wrong by 15.7 µT.
+    ///
+    /// A wrong offset does not merely make the bearing wrong. It makes it wrong in a way that
+    /// slowly corrects itself as the estimate improves, which reads as a bearing that drifts for
+    /// half a minute after the robot stops.
     ///
     /// Only the horizontal plane is considered: a robot driving on a floor turns about the
     /// vertical axis, which therefore never sweeps and would hold the estimate back forever.

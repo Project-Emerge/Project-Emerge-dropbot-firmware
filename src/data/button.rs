@@ -6,6 +6,8 @@
 pub enum ButtonEvent {
     /// A press released before the power-off threshold: move to the next menu page.
     ShortPress,
+    /// A press held long enough to prove physical presence but released before power-off.
+    CalibrationPress,
     /// The button was held past the power-off threshold. The board is about to cut its own
     /// supply, so this is the last event the display will ever receive.
     LongPress,

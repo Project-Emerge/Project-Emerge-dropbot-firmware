@@ -1,4 +1,5 @@
 pub mod battery_monitor;
+pub mod calibration_manager;
 pub mod display_controller;
 pub mod imu_monitor;
 pub mod imu_publisher;
@@ -7,11 +8,19 @@ pub mod mqtt_client;
 pub mod mqtt_manager;
 pub mod network_monitor;
 pub mod ota_manager;
+pub mod pose_estimator;
+pub mod pose_publisher;
 pub mod power_button;
 pub mod telemetry_aggregator;
 pub mod telemetry_publisher;
+#[cfg(feature = "calibration-fixture")]
+pub mod uwb_fixture;
+pub mod uwb_publisher;
+#[cfg(not(feature = "calibration-fixture"))]
+pub mod uwb_ranging;
 
 pub use battery_monitor::monitor_battery;
+pub use calibration_manager::manage_calibration;
 pub use display_controller::manage_display;
 pub use imu_monitor::monitor_imu;
 pub use imu_publisher::publish_imu_stream;
@@ -20,6 +29,13 @@ pub use mqtt_client::manage_mqtt_client;
 pub use mqtt_manager::mqtt_manager;
 pub use network_monitor::network_monitor;
 pub use ota_manager::manage_ota;
+pub use pose_estimator::estimate_pose;
+pub use pose_publisher::publish_pose;
 pub use power_button::manage_power_button;
 pub use telemetry_aggregator::aggregate_telemetry;
 pub use telemetry_publisher::publish_telemetry;
+#[cfg(feature = "calibration-fixture")]
+pub use uwb_fixture::{publish_calibration_samples, start as start_uwb_fixture};
+pub use uwb_publisher::publish_uwb_ranges;
+#[cfg(not(feature = "calibration-fixture"))]
+pub use uwb_ranging::start as start_uwb_ranging;
