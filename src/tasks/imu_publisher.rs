@@ -13,10 +13,9 @@ const ERROR_LOG_INTERVAL: u32 = 250;
 /// Publishes the high-rate IMU stream on its own topic.
 ///
 /// Separate from `publish_telemetry` because the two carry different contracts. That one
-/// sends a once-a-second status summary; this one sends the dead-reckoning input a UWB
-/// localization filter integrates between range fixes, at fifty times the rate. Sharing a
-/// topic would either starve the fusion consumer or force every subscriber that only wants
-/// a battery percentage to parse fifty messages a second.
+/// sends a once-a-second status summary; this one sends motion samples at a higher rate.
+/// Sharing a topic would force every subscriber that only wants a battery percentage to parse
+/// the full sensor stream.
 #[ariel_os::task]
 pub async fn publish_imu_stream(
     topic: &'static str,

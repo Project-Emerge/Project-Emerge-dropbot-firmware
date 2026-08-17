@@ -1,11 +1,5 @@
 /target
-# `crates/*/target` and `anchor/target`: the sub-crates and the anchor app are deliberately plain
-# path dependencies / a separate single-package build rather than workspace members (see the comment
-# in Cargo.toml), so each builds into its own `target/` rather than sharing the root one. laze
-# builds both apps into `/build` instead; these only appear when `cargo` is run directly, e.g. by
-# `cargo fmt` or `cargo test`.
-crates/*/target
-anchor/target
+**/target
 /build
 .gdb_history
 .direnv

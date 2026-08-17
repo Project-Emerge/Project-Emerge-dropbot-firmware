@@ -15,12 +15,10 @@
 //! `drivers::imu` -- permute and negate the components as they come off each sensor -- rather
 //! than in the filter or in whatever consumes the telemetry.
 //!
-//! # Feeding a UWB fusion filter
+//! # Filtering goals
 //!
-//! This IMU is the dead-reckoning half of an indoor localization estimate whose other half is
-//! UWB ranging: the ranges fix absolute position at a low rate, the IMU carries the estimate
-//! between them. That is what the filtering here is tuned for, and it is a different job from
-//! producing a pretty number for a display, in three ways.
+//! The filtering is tuned to preserve physically useful motion data rather than merely produce
+//! smooth-looking values for a display.
 //!
 //! **Phase lag is a bias.** A downstream estimator treats every sample as the state at its
 //! timestamp. A low-pass with a 32 ms group delay hands it a state that is 32 ms old, which
@@ -35,10 +33,8 @@
 //! amount of extra smoothing -- and it is also what lets the attitude corrections be slowed
 //! down enough to stop mistaking the robot's own acceleration for a change in tilt.
 //!
-//! **Standstill is information.** [`FilteredImu::is_stationary`] is published so the fusion
-//! filter can apply a zero-velocity update: while it holds, velocity is known to be zero,
-//! which resets the drift that dead reckoning accumulates while moving. For a robot that
-//! spends much of its time parked this is the single most valuable bit in the payload.
+//! **Standstill is information.** [`FilteredImu::is_stationary`] is published so consumers can
+//! distinguish rest from motion without repeating the threshold logic.
 
 use libm::{atan2f, sqrtf};
 use serde::{Deserialize, Serialize};
@@ -78,9 +74,8 @@ const MAGNETOMETER_CUTOFF_HZ: f32 = 5.0;
 /// two are not separable from the accelerometer alone -- the complementary filter below
 /// absorbs such an offset into the attitude, which is why
 /// [`FilteredImu::linear_acceleration`] correctly reads zero at rest either way. Telling
-/// them apart takes an independent position reference, which is exactly what the UWB half of
-/// the localization filter has and this firmware does not; that is the other reason the raw
-/// axes go out on the wire.
+/// them apart takes an independent position reference, which this firmware does not have; that
+/// is another reason the raw axes go out on the wire.
 const GYRO_BIAS_TAU_S: f32 = 10.0;
 
 /// The board counts as still when no filtered rate exceeds this, in °/s...
@@ -204,9 +199,6 @@ pub struct FilteredImu {
     /// until the board has turned far enough for the hard-iron estimate to hold up; see
     /// [`HardIron::is_usable`].
     ///
-    /// Magnetic north is not the UWB anchor frame's north: a consumer fusing the two needs a
-    /// constant offset between them, which is a property of the room and belongs wherever
-    /// the anchor positions are configured, not here.
     pub heading: Option<f32>,
     /// Whether the board is at rest, in the strong sense that both bias estimates trust:
     /// no measurable rotation and no acceleration beyond gravity. A fusion filter should

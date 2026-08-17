@@ -65,11 +65,10 @@ const PWR_CONF_PERFORMANCE: u8 = 0b0000_0010;
 /// `ACC_CONF`: performance filter, `osr4_avg1` bandwidth, 200 Hz output.
 ///
 /// The output rate is twice what `tasks::imu_monitor` polls at, so every poll gets a sample
-/// at most one period old. The bandwidth setting is the part that matters for the
-/// dead-reckoning this feeds: `osr4` puts the on-chip filter's corner at about 40 Hz, below
-/// the 50 Hz Nyquist limit of the firmware's own 100 Hz sampling. Motor vibration above that
-/// is attenuated here, where it can be, rather than folded down onto the signal band where
-/// no later filter could tell it apart.
+/// at most one period old. `osr4` puts the on-chip filter's corner at about 40 Hz, below the
+/// 50 Hz Nyquist limit of the firmware's own 100 Hz sampling. Motor vibration above that is
+/// attenuated here, where it can be, rather than folded down onto the signal band where no
+/// later filter could tell it apart.
 const ACC_CONF_200HZ: u8 = 0b1000_1001;
 
 /// `GYR_CONF`: performance filter, performance noise mode, `osr4` bandwidth, 200 Hz. Same

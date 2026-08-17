@@ -44,12 +44,7 @@ pub async fn mqtt_manager(
     let broker = Ipv4Address::from_str(MQTT_SERVER_HOST).unwrap();
     // Like `tx` below, this has to hold a whole *incoming* packet -- MQTT fixed header, topic
     // and payload together, not just the payload -- and minimq errors the whole session out
-    // (`Error::MalformedPacket`) if a packet doesn't fit rather than truncating it. 256 was
-    // sized for the small per-robot topics and was never enough for the retained fleet configs
-    // on `topics::ANCHORS_TOPIC` and `topics::TAG_ASSIGNMENTS_TOPIC`: even the minimal
-    // four-anchor `AnchorsConfiguration` below runs to ~360 bytes on the wire, so publishing
-    // one made every reconnect immediately re-fail on the redelivered retained message,
-    // producing exactly the "no surveyed position" warning `tasks::pose_estimator` logs.
+    // (`Error::MalformedPacket`) if a packet does not fit rather than truncating it.
     let rx = &mut [0u8; 1536];
     // The transmit buffer has to hold a whole outgoing packet, and the largest one this
     // firmware sends by a wide margin is the telemetry payload -- which carries the IMU's

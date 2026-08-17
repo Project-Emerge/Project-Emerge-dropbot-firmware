@@ -11,24 +11,6 @@ ariel_os::hal::define_peripherals!(MotorDriverPins {
     btn: GPIO9,
 });
 
-// `spi: SPI2` is taken here rather than through ariel-os's own `spi` feature: that feature's
-// `init()` takes and drops SPI2 unconditionally (see `ariel-os-esp/src/spi/mod.rs`), and
-// `ariel-os-hal` doesn't even re-export a `spi` module -- so the two are mutually exclusive.
-// `src/drivers/uwb/spi.rs` builds an `esp_hal::spi::master::Spi` directly from this peripheral
-// instead, which is also what lets it reconfigure the bus frequency after the DW3000's clock
-// PLL locks (ariel-os's SPI wrapper has no such runtime `apply_config`).
-#[cfg(context = "esp32c6")]
-ariel_os::hal::define_peripherals!(UwbPins {
-    rst: GPIO15,
-    cs: GPIO7,
-    sck: GPIO4,
-    mosi: GPIO6,
-    miso: GPIO5,
-    irq: GPIO2,
-    wup: GPIO3,
-    spi: SPI2,
-});
-
 #[cfg(context = "esp32c6")]
 ariel_os::hal::define_peripherals!(SerialPins {
     tx: GPIO16,
@@ -60,7 +42,6 @@ ariel_os::hal::define_peripherals!(OtaPeripherals { flash: FLASH });
 
 ariel_os::hal::group_peripherals!(Peripherals {
     motor_driver: MotorDriverPins,
-    uwb: UwbPins,
     serial: SerialPins,
     power_management: PowerManagementPins,
     expansion: ExpansionPins,

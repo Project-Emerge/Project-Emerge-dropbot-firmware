@@ -22,10 +22,9 @@ use embassy_sync::{
 use crate::drivers::shared_i2c::{BoardI2cBus, BoardI2cDevice, SharedI2c};
 use crate::pins::I2cBus;
 use crate::tasks::{
-    aggregate_telemetry, estimate_pose, manage_display, manage_motor_controller,
-    manage_mqtt_client, manage_ota, manage_power_button, monitor_battery, monitor_imu,
-    mqtt_manager, network_monitor, publish_imu_stream, publish_pose, publish_telemetry,
-    publish_uwb_ranges, start_uwb_ranging,
+    aggregate_telemetry, manage_display, manage_motor_controller, manage_mqtt_client, manage_ota,
+    manage_power_button, monitor_battery, monitor_imu, mqtt_manager, network_monitor,
+    publish_imu_stream, publish_telemetry,
 };
 
 pub const TCP_BUFFER_SIZE: usize = 1024;
@@ -51,71 +50,20 @@ static BATTERY_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Batt
     Channel::new();
 static IMU_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2> =
     Channel::new();
-// The IMU's high-rate path, separate from `IMU_TELEMETRY` above: this one carries every
-// sample the fusion filter needs to dead-reckon between UWB range fixes, straight to its own
-// MQTT topic, while `IMU_TELEMETRY` trickles the same payload into the once-a-second status
-// bundle. Deliberately shallow -- a stream sample is only worth sending while it is current,
-// so a backed-up queue should drop samples rather than accumulate stale ones.
+// The IMU's streaming path, separate from `IMU_TELEMETRY` above: this one carries samples to
+// their own MQTT topic, while `IMU_TELEMETRY` trickles the same payload into the once-a-second
+// status bundle. Deliberately shallow -- a stream sample is only worth sending while it is
+// current, so a backed-up queue should drop samples rather than accumulate stale ones.
 static IMU_STREAM: Channel<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 2> =
     Channel::new();
 static NETWORK_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::NetworkTelemetry, 2> =
     Channel::new();
 static AGGREGATED_TELEMETRY: Channel<CriticalSectionRawMutex, data::telemetry::Telemetry, 1> =
     Channel::new();
-// Every accepted UWB range, from `range_uwb` to `estimate_pose`. Not shallow like `IMU_STREAM`: a
-// range is far rarer (four per superframe, not fifty a second), each one is a real measurement rather
-// than a sample superseded a few tens of milliseconds later, and they arrive in bursts of four that
-// have to be held together long enough to be fused as one snapshot.
-static UWB_RANGES: Channel<CriticalSectionRawMutex, data::localization::RangeMeasurement, 8> =
-    Channel::new();
-// The same ranges again, forwarded by `estimate_pose` to `publish_uwb_ranges` -- and only when
-// `pose_estimator::PUBLISH_RAW_RANGES` is on, which it is not by default. A second hop rather than a
-// second consumer on `UWB_RANGES`, because a `Channel` hands each message to exactly *one* receiver:
-// two tasks reading it would each get half the ranges, which would quietly halve the fix rate.
-static UWB_RANGES_RAW: Channel<CriticalSectionRawMutex, data::localization::RangeMeasurement, 8> =
-    Channel::new();
-// Every IMU sample, at the full 100 Hz sampling rate, from `monitor_imu` to `estimate_pose`. A
-// `Watch` rather than a channel: the estimator integrates these to carry the pose between range
-// fixes, so a sample it did not get in time is worth nothing to it -- widening the next timestep is
-// strictly better than delivering a stale one late. Separate from `IMU_STREAM`, which is the
-// decimated 50 Hz copy that goes out over MQTT.
-static IMU_FUSION: Watch<CriticalSectionRawMutex, data::telemetry::IMUTelemetry, 1> = Watch::new();
-// The forward duty cycle the motor driver last applied, from `manage_motor_controller` to
-// `estimate_pose`. With no wheel encoders this is the estimator's only forward-motion input.
-static COMMANDED_FORWARD_DUTY: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
-// The fused pose. A `Watch` because a pose is only worth having while it is current, and because the
-// motor controller and the display are the obvious next consumers after the publisher.
-static POSE_ESTIMATE: Watch<CriticalSectionRawMutex, data::localization::PoseEstimate, 2> =
-    Watch::new();
-// The arena's anchor geometry and range calibration, delivered retained on `topics::ANCHORS_TOPIC`.
-// Fleet-shared hardware, so one message for the whole fleet -- see
-// `data::configurations::AnchorsConfiguration`.
-static ANCHORS_CONFIG: Watch<
-    CriticalSectionRawMutex,
-    data::configurations::AnchorsConfiguration,
-    1,
-> = Watch::new();
-// The fleet-wide tag-slot override delivered on `topics::TAG_ASSIGNMENTS_TOPIC`. Only one
-// consumer (`range_uwb`, which falls back to the compiled `drivers::uwb::tag_id::TAG_ASSIGNMENTS`
-// while this holds nothing), but still a `Watch` rather than a `Signal`: `range_uwb` calls
-// `try_get()` once per superframe for as long as the firmware runs, and needs the same last
-// delivered value back every time, not just once -- a `Signal` hands its value to a single
-// `.wait()` and is empty again after, which fits a one-shot request, not a value that has to
-// stay readable indefinitely.
-
-static TAG_ASSIGNMENTS_CONFIG: Watch<
-    CriticalSectionRawMutex,
-    data::configurations::TagAssignmentsConfiguration,
-    1,
-> = Watch::new();
 // Whether the MQTT session is up. A `Watch` because it has several consumers: the telemetry,
-// IMU-stream, UWB-range and pose publishers, which all hold off until the first connection, and the
-// display, which shows the broker state on its network page.
+// IMU-stream publisher and display, which all hold off until the first connection or show its state.
 static BROKER_STATUS: Watch<CriticalSectionRawMutex, data::mqtt::BrokerStatus, 5> = Watch::new();
-// Depth 5, not 4: four publishers (telemetry, IMU stream, UWB ranges, pose) share this queue, and
-// each of them documents that it would rather drop a stale sample than let it delay everything queued
-// behind it -- a queue too shallow to hold one of each producer's next message defeats that by
-// serializing them behind whichever fills it first.
+// The publishers share this queue and drop stale samples rather than delaying newer data behind them.
 static MQTT_PUBLISH: Channel<CriticalSectionRawMutex, data::mqtt::PublishMessage, 5> =
     Channel::new();
 static MQTT_RECEIVE: Channel<CriticalSectionRawMutex, data::mqtt::ReceivedMessage, 2> =
@@ -178,7 +126,6 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             MOTOR_TELEMETRY.sender(),
             MOTOR_COMMAND.receiver(),
             OTA_STATUS.receiver().unwrap(),
-            COMMANDED_FORWARD_DUTY.sender(),
         ))
         .unwrap();
     spawner
@@ -205,18 +152,8 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             BoardI2cDevice::new(i2c_bus),
             IMU_STREAM.sender(),
             IMU_TELEMETRY.sender(),
-            IMU_FUSION.sender(),
         ))
         .unwrap();
-    // Not a `spawner.spawn(...)` like every other task: `range_uwb` runs on its own thread and
-    // its own executor, not the main one -- see `tasks::uwb_ranging`'s module docs for why, and
-    // for why that means handing its dependencies over rather than spawning it directly here.
-    start_uwb_ranging(
-        peripherals.uwb,
-        device_id,
-        UWB_RANGES.sender(),
-        TAG_ASSIGNMENTS_CONFIG.receiver().unwrap(),
-    );
     spawner
         .spawn(aggregate_telemetry(
             MOTOR_TELEMETRY.receiver(),
@@ -244,8 +181,6 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             MQTT_RECEIVE.receiver(),
             MOTOR_COMMAND.sender(),
             &OTA_CHECK_REQUEST,
-            TAG_ASSIGNMENTS_CONFIG.sender(),
-            ANCHORS_CONFIG.sender(),
         ))
         .unwrap();
     spawner
@@ -261,35 +196,6 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             topics.imu_stream(),
             BROKER_STATUS.receiver().unwrap(),
             IMU_STREAM.receiver(),
-            MQTT_PUBLISH.sender(),
-        ))
-        .unwrap();
-    // The sole consumer of `UWB_RANGES`, and the producer of everything downstream of it: the pose,
-    // and -- only when `pose_estimator::PUBLISH_RAW_RANGES` is on -- the raw ranges forwarded for
-    // calibration. Spawned before its publishers so the first pose it produces has somewhere to go.
-    spawner
-        .spawn(estimate_pose(
-            UWB_RANGES.receiver(),
-            IMU_FUSION.receiver().unwrap(),
-            COMMANDED_FORWARD_DUTY.receiver().unwrap(),
-            ANCHORS_CONFIG.receiver().unwrap(),
-            POSE_ESTIMATE.sender(),
-            UWB_RANGES_RAW.sender(),
-        ))
-        .unwrap();
-    spawner
-        .spawn(publish_pose(
-            topics.pose(),
-            BROKER_STATUS.receiver().unwrap(),
-            POSE_ESTIMATE.receiver().unwrap(),
-            MQTT_PUBLISH.sender(),
-        ))
-        .unwrap();
-    spawner
-        .spawn(publish_uwb_ranges(
-            topics.uwb(),
-            BROKER_STATUS.receiver().unwrap(),
-            UWB_RANGES_RAW.receiver(),
             MQTT_PUBLISH.sender(),
         ))
         .unwrap();

@@ -1,12 +1,3 @@
-# Deliberately no `[workspace]` table here. `crates/uwb-protocol` and `crates/dropbot-estimation`
-# below are plain path dependencies with their own implicit single-package workspaces -- same as
-# `ariel-os`/`ariel-os-boards` already are. Declaring an explicit `[workspace]` on this manifest
-# (even a bare one, even with `build/imports/ariel-os` in `exclude`) makes this cargo resolve
-# *any* dependency's `field.workspace = true` inheritance against *this* manifest's
-# `[workspace.package]` instead of the dependency's own -- which breaks `ariel-os`'s
-# `edition.workspace = true` since we don't define one. Run the sub-crates' host tests with
-# `cargo test --manifest-path crates/uwb-protocol/Cargo.toml` (and likewise for
-# `dropbot-estimation`) rather than a workspace-wide `-p`.
 [package]
 name = "project-emerge-dropbot-firmware"
 version = "0.3.0"
@@ -19,12 +10,6 @@ path = "src/main.rs"
 [dependencies]
 ariel-os = { path = "build/imports/ariel-os/src/ariel-os", features = [ "no-boards", "external-interrupts", "time", "i2c", "net", "ipv4", "dns", "tcp"] }
 ariel-os-boards = { path = "build/imports/ariel-os/src/ariel-os-boards" }
-# Same crate `ariel-os` already pulls in transitively (identical path, so Cargo unifies them
-# rather than compiling two copies) -- taken directly only for `thread_executor::Executor`,
-# which `ariel_os::` doesn't re-export: it's a plain `pub mod` on the crate, not part of the
-# curated `api`/`reexports` modules `ariel-os`'s own facade exposes. Used by
-# `tasks::uwb_ranging`'s dedicated thread; see that module's docs.
-ariel-os-embassy = { path = "build/imports/ariel-os/src/ariel-os-embassy" }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
 embassy-sync = "0.8.0"
@@ -45,39 +30,6 @@ bq25887 = { version = "0.1.11", default-features = false }
 minimq = { version = "0.13.0" }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
-# DW3000 UWB radio driver, pinned exactly -- newer dw3000-ng releases have an MSRV ahead of the
-# toolchain this project builds with. `rssi` is deliberately left off: it makes `r_wait` compute
-# the first-path signal power inline (several register reads plus a software `log10f`) on every
-# receive, inside the reply deadline. Taken directly, not just through `dw3000-hal`, for the
-# `Config`/`SendTime`/`Error`/`time::Instant` types that appear in this firmware's own signatures.
-dw3000-ng = { version = "=1.0.2", default-features = false, features = ["async"] }
-# Everything about driving the DW3000 that is not about *this board*: bring-up, the async TX/RX
-# helpers, the `SYS_STATUS` flag-clearing workaround. Shared with the anchor firmware in `anchor/`
-# so the two cannot drift apart again; `src/drivers/uwb/` is now just this board's pin and log
-# glue over it.
-dw3000-hal = { path = "crates/dw3000-hal" }
-# `dw3000_ng::DW3000::new` wants an `embedded_hal_async::spi::SpiDevice`; this wraps the bare
-# `esp_hal::spi::master::Spi` bus (constructed directly in `src/drivers/uwb/spi.rs`, bypassing
-# ariel-os's own SPI wrapper -- see that module for why) together with the CS `Output`.
-embedded-hal-bus = { version = "0.3", default-features = false, features = ["async"] }
-uwb-protocol = { path = "crates/uwb-protocol" }
-dropbot-estimation = { path = "crates/dropbot-estimation" }
-# For `Ieee802154Address`/`Ieee802154Pan`, which `set_address` (`src/drivers/uwb/mod.rs`) needs
-# to hand `dw3000-ng` the tag's own short address -- `dw3000-ng` wraps every frame in an 802.15.4
-# header using these same types. Not pinned to an exact patch version: whatever satisfies
-# `dw3000-ng`'s own `>=0.11` request is what's already in the build, and this only needs to name
-# a compatible minor.
-smoltcp = { version = "0.13", default-features = false, features = ["medium-ieee802154"] }
-# Not used directly -- present only to fix a Cargo feature-unification split: `dw3000-ng` turns
-# on smoltcp's own `medium-ieee802154` feature (for the `Ieee802154Address`/`Ieee802154Pan`
-# types it wraps every UWB frame in), which implies smoltcp's `proto-sixlowpan` and therefore
-# its `proto-ipv6`. That's a different flag from *embassy-net's* `proto-ipv6` feature (which we
-# don't otherwise want -- this firmware is IPv4-only), but embassy-net's `dns.rs` match on
-# `IpAddress` is gated on its own feature, not smoltcp's: with smoltcp's `Ipv6` variant compiled
-# in but embassy-net's matching arm compiled out, the match stops being exhaustive. Enabling
-# embassy-net's `proto-ipv6` here just realigns the two gates so the arm comes back; nothing in
-# this firmware configures an IPv6 address, so the extra code is otherwise inert.
-embassy-net = { version = "0.9", default-features = false, features = ["proto-ipv6"] }
 
 [target.'cfg(context = "esp32c6")'.dependencies]
 esp-hal = { version = "~1.0", features = ["unstable"] }

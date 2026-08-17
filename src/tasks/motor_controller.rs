@@ -4,7 +4,7 @@ use ariel_os::time::Timer;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
-use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
+use embassy_sync::watch::Receiver as WatchReceiver;
 use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode};
 use esp_hal::time::Rate;
 
@@ -21,7 +21,6 @@ pub async fn manage_motor_controller(
     motor_telemetry: Sender<'static, CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2>,
     motor_command: Receiver<'static, CriticalSectionRawMutex, data::commands::DriveCommand, 2>,
     mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
-    forward_duty: WatchSender<'static, CriticalSectionRawMutex, f32, 1>,
 ) -> ! {
     let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(32)).unwrap();
     let mut pwm_module = McPwm::new(pins.pwm_device, clock_cfg);
@@ -102,7 +101,6 @@ pub async fn manage_motor_controller(
         };
         match motor_driver.get_status() {
             Ok(MotorStatus::Stopped) => {
-                forward_duty.send(0.0);
                 motor_telemetry
                     .try_send(MotorTelemetry::Stopped)
                     .unwrap_or_else(|e| {
@@ -110,12 +108,6 @@ pub async fn manage_motor_controller(
                     });
             }
             Ok(MotorStatus::Motoring { left, right }) => {
-                // The mean of the two signed side duties is the forward component; their difference is
-                // the turn, which the pose estimator takes from the gyroscope instead. Reported from
-                // `get_status` rather than from the command, so it reflects what the driver's own
-                // slew-rate filter actually applied. This is the only forward-motion input the
-                // estimator has -- the robots have no wheel encoders.
-                forward_duty.send(0.5 * (left + right));
                 motor_telemetry
                     .try_send(MotorTelemetry::Motoring { left, right })
                     .unwrap_or_else(|e| {

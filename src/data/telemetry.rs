@@ -27,8 +27,7 @@ pub struct BatteryTelemetry {
 ///
 /// The same payload is published two ways: once per second inside [`Telemetry`], as a
 /// summary of what the robot is doing, and at the rate `tasks::imu_monitor` streams at on
-/// its own topic, as the dead-reckoning input to a UWB localization filter. The second is
-/// what the field set is shaped by.
+/// its own topic for observers and offline analysis.
 ///
 /// The two halves are the filter's own types, serialized as they are. Vectors come out as
 /// `[x, y, z]` and the attitude quaternion as `[x, y, z, w]` -- note the scalar part last,
@@ -38,12 +37,9 @@ pub struct IMUTelemetry {
     /// Microseconds since the board booted, read as close to the sensor transaction as the
     /// scheduler allows.
     ///
-    /// A fusion filter cannot use an IMU sample without knowing when it was taken; the
-    /// arrival time of an MQTT message is not that, since it also carries whatever the queue,
-    /// the Wi-Fi link and the broker added. Being relative to boot, it needs pairing with
-    /// something absolute before samples from two robots can be compared -- either a UWB
-    /// timestamp exchange or the receiver's own clock and an offset estimate. It jumps back
-    /// to zero if the board resets.
+    /// The arrival time of an MQTT message is not the sample time, since it also carries
+    /// whatever delay the queue, Wi-Fi link and broker added. This value is relative to boot
+    /// and jumps back to zero if the board resets.
     pub timestamp_us: u64,
     /// Unfiltered: physical units in the board frame, and nothing else. No low-pass, no bias
     /// removal, no hard-iron correction. Published alongside the filtered values so a
