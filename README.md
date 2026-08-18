@@ -31,28 +31,21 @@ build tools used by CI.
 
 ## Communication
 
-MQTT carries remote commands and robot telemetry. All payloads are JSON, and each topic is
-namespaced with the robot's device ID (`{id}`), a six-character uppercase hexadecimal string
-derived from the low three bytes of the ESP32-C6 factory MAC address at boot.
+MQTT carries remote commands and robot telemetry. All payloads are JSON. Topics are namespaced
+with the robot's device ID (`{id}`), a six-character uppercase hexadecimal string derived from
+the low three bytes of the ESP32-C6 factory MAC address at boot.
 
-### Published by the robot
+### MQTT Topics
 
-| Topic | Rate | Purpose |
-|---|---|---|
-| `/telemetry/{id}` | 1 Hz | Aggregated motor, battery, IMU and network status. |
-| `/imu/{id}` | 10 Hz | Raw and filtered accelerometer, gyroscope and magnetometer data, attitude and a boot-relative timestamp. |
+| Topic | Direction | Purpose | QoS | Retained | Notes |
+|---|---|---|---|---|---|
+| `/telemetry/{id}` | Publish | Aggregated motor, battery, IMU and network status (JSON). | 0 | No | 1 Hz rate. JSON includes motor speed, battery voltage, IMU samples, Wi-Fi signal strength. |
+| `/imu/{id}` | Publish | Raw and filtered accelerometer, gyroscope, magnetometer data with attitude and boot-relative timestamp (JSON). | 0 | No | 10 Hz rate. High-rate stream kept separate from telemetry so subscribers can choose data rate. |
+| `/motors/{id}` | Subscribe | Drive commands: `{"left": <int16>, "right": <int16>}` (move) or `{}` (stop). | 0 | No | Three-second watchdog stops motors when commands cease. Accepts any `left`/`right` value from -127 to 127. |
+| `/ota/check/{id}` | Subscribe | Trigger immediate OTA update check. Payload is ignored. | 0 | No | Robot checks OTA server on receipt. Completes within minutes depending on network. |
+| `/config/ota` | Subscribe | Fleet-wide OTA server configuration: `{"server":"192.168.8.1"}` or `{"server":"192.168.8.1:8080"}`. | 0 | **Yes** | Publish retained so robots receive it after connecting. No compile-time default. Robot waits for this message before starting periodic OTA checks. Takes effect on next check; no reboot required. |
 
-### Subscribed by the robot
-
-| Topic | Payload | Purpose |
-|---|---|---|
-| `/motors/{id}` | `Move { left, right }` or `Stop` | Remote drive commands. A three-second watchdog stops the motors when commands cease. |
-| `/ota/check/{id}` | Ignored | Triggers an immediate check of the OTA update server. |
-| `/config/ota` | `{"server":"192.168.8.1"}` | Sets the fleet-wide OTA HTTP server. A `host:port` value is accepted. Publish this configuration retained so robots receive it after connecting. |
-
-There is no compile-time OTA server default. The OTA task waits for a valid `/config/ota`
-message before starting its periodic checks; changing the retained value takes effect on the next
-check without rebooting the robot.
+All published messages use QoS 0 (at-most-once, no acknowledgment). The `/config/ota` topic must be published with the retain flag set so new robots joining the swarm fetch the configuration on subscription.
 
 ## Architecture
 
