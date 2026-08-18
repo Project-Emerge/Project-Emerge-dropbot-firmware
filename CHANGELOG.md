@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/compare/project-emerge-firmware-v0.3.0...project-emerge-firmware-v0.4.0) (2026-08-18)
+
+
+### Features
+
+* automatize ota updates ([d1b2510](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/commit/d1b251088f337d939ed87cba15ae2377980d8bae))
+* implement uwb tracking ([1e3d0da](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/commit/1e3d0dad7623e71ded575b7dc219ffc81d89cad2))
+* remove UWB ([347c177](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/commit/347c177a8d3ffe415319f203e70ecd348172be85))
+
+
+### Bug Fixes
+
+* resolve clippy warnings from laze build -b dropbot clippy ([8021a0d](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/commit/8021a0d2de087ae2fd200fcf34287395bc8c3b2b))
+
 ## [0.3.0](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/compare/project-emerge-firmware-v0.2.0...project-emerge-firmware-v0.3.0) (2026-08-10)
 
 
