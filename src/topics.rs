@@ -10,6 +10,9 @@ const TELEMETRY_PREFIX: &str = "/telemetry/";
 const IMU_STREAM_PREFIX: &str = "/imu/";
 const MOTOR_COMMAND_PREFIX: &str = "/motors/";
 const OTA_CHECK_PREFIX: &str = "/ota/check/";
+/// The OTA endpoint is shared by the fleet and published retained, so it is not namespaced by
+/// device ID like commands and telemetry.
+const OTA_CONFIG_TOPIC: &str = "/config/ota";
 
 // Each buffer is sized to exactly what it holds: its own prefix plus the device ID.
 const TELEMETRY_LEN: usize = TELEMETRY_PREFIX.len() + DEVICE_ID_LEN;
@@ -26,6 +29,7 @@ const OTA_CHECK_LEN: usize = OTA_CHECK_PREFIX.len() + DEVICE_ID_LEN;
 pub enum InboundTopic {
     MotorCommand,
     OtaCheck,
+    OtaConfig,
 }
 
 impl InboundTopic {
@@ -35,6 +39,7 @@ impl InboundTopic {
         match self {
             Self::MotorCommand => "motors",
             Self::OtaCheck => "ota-check",
+            Self::OtaConfig => "ota-config",
         }
     }
 }
@@ -95,10 +100,11 @@ impl Topics {
     /// The filters to subscribe with. Kept alongside [`Self::resolve`] so the set of topics
     /// the broker is asked for and the set that can be recognised on arrival cannot drift.
     #[must_use]
-    pub fn subscriptions(&self) -> [TopicFilter<'_>; 2] {
+    pub fn subscriptions(&self) -> [TopicFilter<'_>; 3] {
         [
             TopicFilter::new(&self.motor_command),
             TopicFilter::new(&self.ota_check),
+            TopicFilter::new(OTA_CONFIG_TOPIC),
         ]
     }
 
@@ -110,6 +116,8 @@ impl Topics {
             Some(InboundTopic::MotorCommand)
         } else if topic == self.ota_check.as_str() {
             Some(InboundTopic::OtaCheck)
+        } else if topic == OTA_CONFIG_TOPIC {
+            Some(InboundTopic::OtaConfig)
         } else {
             None
         }

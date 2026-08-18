@@ -72,9 +72,11 @@ jobs:
       - name: Package firmware image
         run: |
           mkdir -p dist
-          bin="build/bin/${BUILDER}/cargo/${RUST_TARGET}/release/${FIRMWARE_NAME}"
-          cp "$bin" "dist/${FIRMWARE_NAME}.elf"
-          espflash save-image --chip esp32c6 --merge "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}.bin"
+          elf="build/bin/${BUILDER}/cargo/${RUST_TARGET}/release/${FIRMWARE_NAME}"
+          ota_bin="build/bin/${BUILDER}/${FIRMWARE_NAME}/${FIRMWARE_NAME}.bin"
+          test -f "$ota_bin"
+          cp "$elf" "dist/${FIRMWARE_NAME}.elf"
+          cp "$ota_bin" "dist/${FIRMWARE_NAME}.bin"
           sha256sum "dist/${FIRMWARE_NAME}.elf" "dist/${FIRMWARE_NAME}.bin" > dist/SHA256SUMS
 
       - name: Upload firmware artifact

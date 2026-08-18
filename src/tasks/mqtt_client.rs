@@ -3,7 +3,8 @@ use heapless::String;
 use serde_json::from_str;
 
 use crate::data::commands::DriveCommand;
-use crate::task_sync::{MotorCommandTx, MqttReceiveRx, OtaCheckRequestSignal};
+use crate::data::configurations::OtaConfiguration;
+use crate::task_sync::{MotorCommandTx, MqttReceiveRx, OtaCheckRequestSignal, OtaConfigurationTx};
 use crate::topics::InboundTopic;
 
 /// Messaging endpoints owned by the MQTT command-dispatch task.
@@ -11,6 +12,7 @@ pub struct MqttClientPorts {
     pub mqtt_receive: MqttReceiveRx,
     pub motor_commands: MotorCommandTx,
     pub ota_check_request: &'static OtaCheckRequestSignal,
+    pub ota_configuration: OtaConfigurationTx,
 }
 
 #[ariel_os::task]
@@ -50,6 +52,17 @@ pub async fn manage_mqtt_client(ports: MqttClientPorts) -> ! {
                 info!("mqtt: ota check requested via mqtt");
                 ports.ota_check_request.signal(());
             }
+            InboundTopic::OtaConfig => match from_str::<OtaConfiguration>(payload.as_str()) {
+                Ok(config) if config.is_valid() => {
+                    info!("mqtt: ota server set to {}", config.server.as_str());
+                    ports.ota_configuration.send(config);
+                }
+                Ok(_) => error!("mqtt: invalid ota server, ignoring configuration"),
+                Err(e) => error!(
+                    "mqtt: failed to parse ota configuration: {:?}",
+                    Debug2Format(&e)
+                ),
+            },
         }
     }
 }

@@ -1,6 +1,5 @@
 use core::fmt::Write as _;
 
-use ariel_os::config;
 use ariel_os::log::{Debug2Format, debug, error, info};
 use ariel_os::net;
 use ariel_os::reexports::embassy_net::{
@@ -21,14 +20,7 @@ use reqwless::request::Method;
 
 use crate::data::ota::{FirmwareManifest, OtaStatus};
 use crate::pins;
-use crate::task_sync::{NetworkReadyRx, OtaCheckRequestSignal, OtaStatusTx};
-
-/// Hostname or IP address of the OTA update server, e.g. `192.168.8.1` or `ota.local`.
-const OTA_SERVER_HOST: &str = config::str_from_env_or!(
-    "OTA_SERVER_HOST",
-    "192.168.8.1",
-    "hostname or IP address of the OTA update server",
-);
+use crate::task_sync::{NetworkReadyRx, OtaCheckRequestSignal, OtaConfigurationRx, OtaStatusTx};
 
 const OTA_POLL_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
@@ -43,6 +35,7 @@ const MAX_CONCURRENT_CONNECTIONS: usize = 1;
 pub struct OtaManagerPorts {
     pub network_ready: NetworkReadyRx,
     pub ota_check_request: &'static OtaCheckRequestSignal,
+    pub ota_configuration: OtaConfigurationRx,
     pub ota_status: OtaStatusTx,
 }
 
@@ -118,6 +111,14 @@ pub async fn manage_ota(pins: pins::OtaPeripherals, mut ports: OtaManagerPorts) 
     ports.network_ready.get().await;
     let stack = net::network_stack().await.unwrap();
 
+    // There is deliberately no compiled-in fallback: the retained MQTT configuration is the
+    // source of truth, and `get` keeps this task dormant until the broker has delivered it.
+    let initial_config = ports.ota_configuration.get().await;
+    info!(
+        "ota: server configured as {}",
+        initial_config.server.as_str()
+    );
+
     loop {
         match select(
             Timer::after(OTA_POLL_INTERVAL),
@@ -129,7 +130,12 @@ pub async fn manage_ota(pins: pins::OtaPeripherals, mut ports: OtaManagerPorts) 
             Either::Second(()) => info!("ota: manual check requested"),
         }
 
-        match check_and_apply_update(stack, &mut flash, &ports.ota_status).await {
+        // Read the latest value for every attempt so a retained configuration update applies
+        // without rebooting and without interrupting an update already in progress.
+        let config = ports.ota_configuration.get().await;
+        match check_and_apply_update(stack, &mut flash, &ports.ota_status, config.server.as_str())
+            .await
+        {
             Ok(true) => {
                 info!("ota: update installed, rebooting");
                 publish_status(&ports.ota_status, OtaStatus::Applying);
@@ -152,6 +158,7 @@ async fn check_and_apply_update(
     stack: embassy_net::Stack<'static>,
     flash: &mut FlashStorage<'static>,
     ota_status: &OtaStatusTx,
+    ota_server: &str,
 ) -> Result<bool, OtaError> {
     let tcp_client_state =
         TcpClientState::<MAX_CONCURRENT_CONNECTIONS, TCP_BUFFER_SIZE, TCP_BUFFER_SIZE>::new();
@@ -160,7 +167,7 @@ async fn check_and_apply_update(
     let mut http_client = HttpClient::new(&tcp_client, &dns_client);
 
     let mut manifest_url: heapless::String<URL_BUFFER_SIZE> = heapless::String::new();
-    write!(manifest_url, "http://{OTA_SERVER_HOST}/api/firmware/latest")
+    write!(manifest_url, "http://{ota_server}/api/firmware/latest")
         .map_err(|_| OtaError::UrlTooLong)?;
 
     // Extract only what we need as owned values, so the manifest response buffer (and the
@@ -213,8 +220,7 @@ async fn check_and_apply_update(
     }
 
     let mut firmware_url: heapless::String<URL_BUFFER_SIZE> = heapless::String::new();
-    write!(firmware_url, "http://{OTA_SERVER_HOST}{firmware_path}")
-        .map_err(|_| OtaError::UrlTooLong)?;
+    write!(firmware_url, "http://{ota_server}{firmware_path}").map_err(|_| OtaError::UrlTooLong)?;
 
     info!(
         "ota: downloading firmware into {:?} slot ({} bytes)",

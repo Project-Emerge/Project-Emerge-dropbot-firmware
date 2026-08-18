@@ -19,6 +19,17 @@ apps:
         # JSON parsing on top. ariel-os's own http-client example asks for 65536 for HTTP alone.
         executor_stacksize_required:
           - "65536"
+        # Ariel OS runs POST_LINK after Cargo has produced the ELF. Generate an app-only ESP-IDF
+        # image for the OTA updater; a merged image would also contain the bootloader and
+        # partition table and therefore cannot be written directly to an OTA app partition.
+        POST_LINK: >-
+          && mkdir -p ${bindir} &&
+          espflash save-image
+          --chip esp32c6
+          --partition-table ${relroot}/partitions.csv
+          --target-app-partition ota_0
+          ${out}
+          ${bindir}/${app}.bin
     selects:
       - network
       - logging-over-usb

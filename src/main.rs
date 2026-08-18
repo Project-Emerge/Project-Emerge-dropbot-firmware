@@ -22,8 +22,8 @@ use crate::task_sync::{
     AggregatedTelemetryChannel, BatteryTelemetryChannel, BrokerStatusWatch, ChargerStatusWatch,
     ImuStreamChannel, ImuTelemetryChannel, MotorCommandChannel, MotorTelemetryChannel,
     MqttPublishChannel, MqttReceiveChannel, NetworkReadyWatch, NetworkStatusSignal,
-    NetworkTelemetryChannel, OtaCheckRequestSignal, OtaStatusWatch, PowerEventChannel,
-    ShutdownRequestChannel,
+    NetworkTelemetryChannel, OtaCheckRequestSignal, OtaConfigurationWatch, OtaStatusWatch,
+    PowerEventChannel, ShutdownRequestChannel,
 };
 use crate::tasks::{
     BatteryMonitorPorts, DisplayPorts, ImuMonitorPorts, ImuPublisherPorts, MotorControllerPorts,
@@ -67,6 +67,8 @@ static BROKER_STATUS: BrokerStatusWatch = BrokerStatusWatch::new();
 static MQTT_PUBLISH: MqttPublishChannel = MqttPublishChannel::new();
 static MQTT_RECEIVE: MqttReceiveChannel = MqttReceiveChannel::new();
 static OTA_CHECK_REQUEST: OtaCheckRequestSignal = OtaCheckRequestSignal::new();
+// The retained fleet-wide MQTT configuration is the sole source of the OTA server address.
+static OTA_CONFIGURATION: OtaConfigurationWatch = OtaConfigurationWatch::new();
 // Progress of an in-flight OTA update. A `Watch` for the same reason as `NETWORK_READY`:
 // two consumers, the display (which shows a progress screen) and the motor controller
 // (which cuts the motors for the duration of the update).
@@ -196,6 +198,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             mqtt_receive: MQTT_RECEIVE.receiver(),
             motor_commands: MOTOR_COMMAND.sender(),
             ota_check_request: &OTA_CHECK_REQUEST,
+            ota_configuration: OTA_CONFIGURATION.sender(),
         }))
         .unwrap();
     spawner
@@ -224,6 +227,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             OtaManagerPorts {
                 network_ready: NETWORK_READY.receiver().unwrap(),
                 ota_check_request: &OTA_CHECK_REQUEST,
+                ota_configuration: OTA_CONFIGURATION.receiver().unwrap(),
                 ota_status: OTA_STATUS.sender(),
             },
         ))

@@ -12,6 +12,11 @@ This repository contains the ESP32-C6 firmware for the robot, built on
 laze build -b dropbot -a dropbot-firmware
 ```
 
+The build also generates the app-only image accepted by the OTA updater at
+`build/bin/dropbot/dropbot-firmware/dropbot-firmware.bin`. This is intentionally not a merged
+full-flash image: flash the ELF for initial provisioning and upload the `.bin` to the OTA server
+for subsequent updates.
+
 The development shell in `flake.nix` provides the Rust toolchain, `laze`, `espflash` and the other
 build tools used by CI.
 
@@ -43,6 +48,11 @@ derived from the low three bytes of the ESP32-C6 factory MAC address at boot.
 |---|---|---|
 | `/motors/{id}` | `Move { left, right }` or `Stop` | Remote drive commands. A three-second watchdog stops the motors when commands cease. |
 | `/ota/check/{id}` | Ignored | Triggers an immediate check of the OTA update server. |
+| `/config/ota` | `{"server":"192.168.8.1"}` | Sets the fleet-wide OTA HTTP server. A `host:port` value is accepted. Publish this configuration retained so robots receive it after connecting. |
+
+There is no compile-time OTA server default. The OTA task waits for a valid `/config/ota`
+message before starting its periodic checks; changing the retained value takes effect on the next
+check without rebooting the robot.
 
 ## Architecture
 

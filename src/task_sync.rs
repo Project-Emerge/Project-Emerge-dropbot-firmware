@@ -12,6 +12,7 @@ use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender, Watc
 
 use crate::data::battery::ChargerStatus;
 use crate::data::commands::DriveCommand;
+use crate::data::configurations::OtaConfiguration;
 use crate::data::mqtt::{BrokerStatus, PublishMessage, ReceivedMessage};
 use crate::data::ota::OtaStatus;
 use crate::data::power::{PowerEvent, ShutdownReason};
@@ -67,6 +68,10 @@ pub type MqttReceiveTx = Sender<'static, TaskMutex, ReceivedMessage, 2>;
 pub type MqttReceiveRx = Receiver<'static, TaskMutex, ReceivedMessage, 2>;
 
 pub type OtaCheckRequestSignal = Signal<TaskMutex, ()>;
+
+pub type OtaConfigurationWatch = Watch<TaskMutex, OtaConfiguration, 1>;
+pub type OtaConfigurationTx = WatchSender<'static, TaskMutex, OtaConfiguration, 1>;
+pub type OtaConfigurationRx = WatchReceiver<'static, TaskMutex, OtaConfiguration, 1>;
 
 pub type OtaStatusWatch = Watch<TaskMutex, OtaStatus, 2>;
 pub type OtaStatusTx = WatchSender<'static, TaskMutex, OtaStatus, 2>;
