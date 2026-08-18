@@ -10,9 +10,6 @@ use ariel_os::reexports::embassy_net::{
 };
 use ariel_os::time::{Duration, Timer};
 use embassy_futures::select::{Either, select};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
-use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use embedded_io_async::Read as _;
 use embedded_storage::Storage as _;
 use esp_bootloader_esp_idf::ota::OtaImageState;
@@ -24,9 +21,7 @@ use reqwless::request::Method;
 
 use crate::data::ota::{FirmwareManifest, OtaStatus};
 use crate::pins;
-
-/// Broadcast channel carrying [`OtaStatus`] to the display and the motor controller.
-type OtaStatusSender = WatchSender<'static, CriticalSectionRawMutex, OtaStatus, 2>;
+use crate::task_sync::{NetworkReadyRx, OtaCheckRequestSignal, OtaStatusTx};
 
 /// Hostname or IP address of the OTA update server, e.g. `192.168.8.1` or `ota.local`.
 const OTA_SERVER_HOST: &str = config::str_from_env_or!(
@@ -43,6 +38,13 @@ const DOWNLOAD_HEADER_BUFFER_SIZE: usize = 512;
 const DOWNLOAD_CHUNK_SIZE: usize = TCP_BUFFER_SIZE;
 const URL_BUFFER_SIZE: usize = 128;
 const MAX_CONCURRENT_CONNECTIONS: usize = 1;
+
+/// Messaging endpoints owned by the OTA task.
+pub struct OtaManagerPorts {
+    pub network_ready: NetworkReadyRx,
+    pub ota_check_request: &'static OtaCheckRequestSignal,
+    pub ota_status: OtaStatusTx,
+}
 
 // Field contents are only ever surfaced through the derived `Debug` impl (via `Debug2Format`
 // in the `error!` logs below), which the dead-code lint doesn't credit as a read.
@@ -77,7 +79,7 @@ impl From<esp_bootloader_esp_idf::partitions::Error> for OtaError {
 
 /// Publishes `status` unless the watch already holds it, so tasks observing it are not
 /// woken by the periodic checks that find nothing to install.
-fn publish_status(ota_status: &OtaStatusSender, status: OtaStatus) {
+fn publish_status(ota_status: &OtaStatusTx, status: OtaStatus) {
     if ota_status.try_get() != Some(status) {
         ota_status.send(status);
     }
@@ -88,12 +90,7 @@ fn publish_status(ota_status: &OtaStatusSender, status: OtaStatus) {
 /// A check can also be triggered on demand (e.g. from an MQTT command) by signaling
 /// `ota_check_request`.
 #[ariel_os::task]
-pub async fn manage_ota(
-    mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
-    ota_check_request: &'static Signal<CriticalSectionRawMutex, ()>,
-    pins: pins::OtaPeripherals,
-    ota_status: OtaStatusSender,
-) -> ! {
+pub async fn manage_ota(pins: pins::OtaPeripherals, mut ports: OtaManagerPorts) -> ! {
     let mut flash = FlashStorage::new(pins.flash);
 
     // If we just rebooted into a freshly installed slot, confirm it as working so the
@@ -118,19 +115,24 @@ pub async fn manage_ota(
         }
     }
 
-    network_ready.get().await;
+    ports.network_ready.get().await;
     let stack = net::network_stack().await.unwrap();
 
     loop {
-        match select(Timer::after(OTA_POLL_INTERVAL), ota_check_request.wait()).await {
+        match select(
+            Timer::after(OTA_POLL_INTERVAL),
+            ports.ota_check_request.wait(),
+        )
+        .await
+        {
             Either::First(()) => debug!("ota: periodic check"),
             Either::Second(()) => info!("ota: manual check requested"),
         }
 
-        match check_and_apply_update(stack, &mut flash, &ota_status).await {
+        match check_and_apply_update(stack, &mut flash, &ports.ota_status).await {
             Ok(true) => {
                 info!("ota: update installed, rebooting");
-                publish_status(&ota_status, OtaStatus::Applying);
+                publish_status(&ports.ota_status, OtaStatus::Applying);
                 Timer::after(Duration::from_millis(200)).await;
                 esp_hal::system::software_reset();
             }
@@ -140,7 +142,7 @@ pub async fn manage_ota(
 
         // Reached only when no reboot happened, i.e. the firmware was up to date or the
         // update failed: release the tasks that paused for it.
-        publish_status(&ota_status, OtaStatus::Idle);
+        publish_status(&ports.ota_status, OtaStatus::Idle);
     }
 }
 
@@ -149,7 +151,7 @@ pub async fn manage_ota(
 async fn check_and_apply_update(
     stack: embassy_net::Stack<'static>,
     flash: &mut FlashStorage<'static>,
-    ota_status: &OtaStatusSender,
+    ota_status: &OtaStatusTx,
 ) -> Result<bool, OtaError> {
     let tcp_client_state =
         TcpClientState::<MAX_CONCURRENT_CONNECTIONS, TCP_BUFFER_SIZE, TCP_BUFFER_SIZE>::new();

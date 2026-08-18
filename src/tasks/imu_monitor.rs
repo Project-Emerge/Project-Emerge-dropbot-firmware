@@ -1,12 +1,11 @@
 use ariel_os::log::{Debug2Format, debug, error, info};
 use ariel_os::time::{Duration, Instant, Timer};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Sender;
 
 use crate::data::imu::{FilteredImu, ImuFilter, ImuSample};
 use crate::data::telemetry::IMUTelemetry;
 use crate::drivers::imu::Imu9Axis;
 use crate::drivers::shared_i2c::BoardI2cDevice;
+use crate::task_sync::{ImuStreamTx, ImuTelemetryTx};
 use crate::traits::Imu;
 
 /// How often the sensors are sampled: 100 Hz.
@@ -43,6 +42,12 @@ const TELEMETRY_INTERVAL: Duration = Duration::from_millis(500);
 /// Backoff before re-probing sensors that stopped answering.
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Messaging endpoints owned by the IMU sampling task.
+pub struct ImuMonitorPorts {
+    pub imu_stream: ImuStreamTx,
+    pub imu_telemetry: ImuTelemetryTx,
+}
+
 /// Samples the nine-axis IMU, filters it, and publishes both versions on two paths.
 ///
 /// `imu_stream` carries a decimated copy at [`STREAM_INTERVAL`] out over MQTT for observers;
@@ -57,8 +62,7 @@ const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 pub async fn monitor_imu(
     inertial_i2c: BoardI2cDevice,
     magnetic_i2c: BoardI2cDevice,
-    imu_stream: Sender<'static, CriticalSectionRawMutex, IMUTelemetry, 2>,
-    imu_telemetry: Sender<'static, CriticalSectionRawMutex, IMUTelemetry, 2>,
+    ports: ImuMonitorPorts,
 ) -> ! {
     let mut imu = Imu9Axis::new(inertial_i2c, magnetic_i2c);
 
@@ -107,7 +111,9 @@ pub async fn monitor_imu(
                 // A full queue means the publisher or the link has not kept up. Dropping the
                 // sample is right: the next one is along in 20 ms and is worth more than a
                 // stale one delivered late.
-                let _ = imu_stream.try_send(telemetry(now, &sample, &filtered));
+                let _ = ports
+                    .imu_stream
+                    .try_send(telemetry(now, &sample, &filtered));
             }
 
             if now - reported_at >= TELEMETRY_INTERVAL {
@@ -125,7 +131,9 @@ pub async fn monitor_imu(
 
                 // The aggregator samples with `try_receive` and keeps the last value it saw,
                 // so a full queue just means it has not caught up: dropping is right here too.
-                let _ = imu_telemetry.try_send(telemetry(now, &sample, &filtered));
+                let _ = ports
+                    .imu_telemetry
+                    .try_send(telemetry(now, &sample, &filtered));
             }
         }
 

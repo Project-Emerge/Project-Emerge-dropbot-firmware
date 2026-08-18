@@ -2,25 +2,27 @@ use ariel_os::gpio::Output;
 use ariel_os::log::{Debug2Format, error, info, warn};
 use ariel_os::time::Timer;
 use embassy_futures::select::{Either, select};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::{Receiver, Sender};
-use embassy_sync::watch::Receiver as WatchReceiver;
 use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode};
 use esp_hal::time::Rate;
 
 use crate::data;
-use crate::data::ota::OtaStatus;
 use crate::data::telemetry::MotorTelemetry;
 use crate::drivers::motor_driver::{DRV8833Driver, types::MotorConfig};
 use crate::pins;
+use crate::task_sync::{MotorCommandRx, MotorTelemetryTx, OtaStatusRx};
 use crate::traits::{MotorController, MotorStatus};
+
+/// Messaging endpoints owned by the motor-controller task.
+pub struct MotorControllerPorts {
+    pub motor_telemetry: MotorTelemetryTx,
+    pub motor_commands: MotorCommandRx,
+    pub ota_status: OtaStatusRx,
+}
 
 #[ariel_os::task]
 pub async fn manage_motor_controller(
     pins: pins::MotorDriverPins,
-    motor_telemetry: Sender<'static, CriticalSectionRawMutex, data::telemetry::MotorTelemetry, 2>,
-    motor_command: Receiver<'static, CriticalSectionRawMutex, data::commands::DriveCommand, 2>,
-    mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
+    mut ports: MotorControllerPorts,
 ) -> ! {
     let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(32)).unwrap();
     let mut pwm_module = McPwm::new(pins.pwm_device, clock_cfg);
@@ -54,7 +56,7 @@ pub async fn manage_motor_controller(
         // motors and hold them de-energized for its whole duration, so the robot cannot
         // drive off unattended across the reboot. `set_speed` drives SLEEP high again, so
         // a failed update needs no explicit wake-up here.
-        if let Some(status) = ota_status.try_changed()
+        if let Some(status) = ports.ota_status.try_changed()
             && status.is_active()
         {
             if let Err(e) = motor_driver.stop().and_then(|()| motor_driver.sleep()) {
@@ -62,12 +64,12 @@ pub async fn manage_motor_controller(
             }
             info!("motors: disabled for OTA update");
 
-            while ota_status.changed().await.is_active() {}
+            while ports.ota_status.changed().await.is_active() {}
             info!("motors: OTA update ended, resuming");
         }
 
         match select(
-            motor_command.receive(),
+            ports.motor_commands.receive(),
             Timer::after(ariel_os::time::Duration::from_secs(3)),
         )
         .await
@@ -101,14 +103,16 @@ pub async fn manage_motor_controller(
         };
         match motor_driver.get_status() {
             Ok(MotorStatus::Stopped) => {
-                motor_telemetry
+                ports
+                    .motor_telemetry
                     .try_send(MotorTelemetry::Stopped)
                     .unwrap_or_else(|e| {
                         error!("motors: failed to send telemetry: {:?}", Debug2Format(&e))
                     });
             }
             Ok(MotorStatus::Motoring { left, right }) => {
-                motor_telemetry
+                ports
+                    .motor_telemetry
                     .try_send(MotorTelemetry::Motoring { left, right })
                     .unwrap_or_else(|e| {
                         error!("motors: failed to send telemetry: {:?}", Debug2Format(&e))

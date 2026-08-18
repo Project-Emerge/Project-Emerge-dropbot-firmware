@@ -5,24 +5,25 @@ use ariel_os::log::{Debug2Format, error, info};
 use ariel_os::reexports::embassy_net::Ipv4Address;
 use ariel_os::time::{Duration, Timer};
 use embassy_futures::select::{Either, Either3, select, select3};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Receiver;
-use embassy_sync::signal::Signal;
-use embassy_sync::watch::Receiver as WatchReceiver;
 use heapless::String;
 
 use crate::FIRMWARE_VERSION;
 use crate::data::battery::ChargerStatus;
-use crate::data::button::ButtonEvent;
 use crate::data::menu::MenuPage;
 use crate::data::mqtt::BrokerStatus;
 use crate::data::ota::OtaStatus;
+use crate::data::power::{PowerEvent, ShutdownReason};
 use crate::drivers::display_driver::SD1306Driver;
 use crate::drivers::shared_i2c::BoardI2cDevice;
+use crate::task_sync::{
+    BrokerStatusRx, ChargerStatusRx, NetworkStatusSignal, OtaStatusRx, PowerEventRx,
+};
 use crate::traits::{BatteryPage, DisplayController, NetworkPage};
 
 const POWER_OFF_TITLE: &str = "POWERING OFF";
 const POWER_OFF_MESSAGE: &str = "Bye!";
+const LOW_BATTERY_TITLE: &str = "LOW BATTERY";
+const LOW_BATTERY_MESSAGE: &str = "Robot powering off";
 
 /// The network the firmware was built to join. ariel-os reads the same variable to
 /// configure the Wi-Fi driver, so this always names the network actually being joined.
@@ -36,20 +37,25 @@ const WIFI_SSID: &str = config::str_from_env_or!(
 enum DisplayEvent {
     Network(Option<Ipv4Address>),
     Ota(OtaStatus),
-    Button(ButtonEvent),
+    Power(PowerEvent),
     Broker(BrokerStatus),
     Charger(ChargerStatus),
+}
+
+/// Messaging endpoints owned by the display task.
+pub struct DisplayPorts {
+    pub network_status: &'static NetworkStatusSignal,
+    pub ota_status: OtaStatusRx,
+    pub power_events: PowerEventRx,
+    pub broker_status: BrokerStatusRx,
+    pub charger_status: ChargerStatusRx,
 }
 
 #[ariel_os::task]
 pub async fn manage_display(
     i2c: BoardI2cDevice,
     device_id: &'static str,
-    network_status: &'static Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
-    mut ota_status: WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
-    button_events: Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 2>,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 5>,
-    mut charger_status: WatchReceiver<'static, CriticalSectionRawMutex, ChargerStatus, 1>,
+    mut ports: DisplayPorts,
 ) -> ! {
     let mut display = SD1306Driver::new(i2c, 0x3C);
     match display.init().await {
@@ -78,14 +84,7 @@ pub async fn manage_display(
     }
 
     loop {
-        let event = next_event(
-            network_status,
-            &mut ota_status,
-            &button_events,
-            &mut broker_status,
-            &mut charger_status,
-        )
-        .await;
+        let event = next_event(&mut ports).await;
 
         // An update screen owns the panel until the update ends; state changes are still
         // recorded, and get drawn as part of restoring the page afterwards.
@@ -111,19 +110,20 @@ pub async fn manage_display(
                 }
                 draw_page(&mut display, page, device_id, address, broker, charger).await
             }
-            DisplayEvent::Button(ButtonEvent::ShortPress) => {
+            DisplayEvent::Power(PowerEvent::ShortPress) => {
                 page = page.next();
                 if ota_active {
                     continue;
                 }
                 draw_page(&mut display, page, device_id, address, broker, charger).await
             }
-            DisplayEvent::Button(ButtonEvent::LongPress) => {
-                if let Err(e) = display
-                    .draw_notice(POWER_OFF_TITLE, POWER_OFF_MESSAGE)
-                    .await
-                {
-                    error!("display: power-off draw failed: {:?}", Debug2Format(&e));
+            DisplayEvent::Power(PowerEvent::ShuttingDown(reason)) => {
+                let (title, message) = match reason {
+                    ShutdownReason::ButtonHeld => (POWER_OFF_TITLE, POWER_OFF_MESSAGE),
+                    ShutdownReason::LowBattery => (LOW_BATTERY_TITLE, LOW_BATTERY_MESSAGE),
+                };
+                if let Err(e) = display.draw_notice(title, message).await {
+                    error!("display: shutdown draw failed: {:?}", Debug2Format(&e));
                 }
                 // The supply is about to be cut: hold this screen so nothing redraws over
                 // the goodbye in whatever time is left.
@@ -163,24 +163,18 @@ pub async fn manage_display(
 }
 
 /// Waits for whichever input moves first. `select` only comes in fixed arities, so the five
-/// sources are nested into threes and twos and flattened back into [`DisplayEvent`] here.
-async fn next_event(
-    network_status: &Signal<CriticalSectionRawMutex, Option<Ipv4Address>>,
-    ota_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, OtaStatus, 2>,
-    button_events: &Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 2>,
-    broker_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 5>,
-    charger_status: &mut WatchReceiver<'static, CriticalSectionRawMutex, ChargerStatus, 1>,
-) -> DisplayEvent {
+/// sources are nested and flattened back into [`DisplayEvent`] here.
+async fn next_event(ports: &mut DisplayPorts) -> DisplayEvent {
     match select3(
-        select(network_status.wait(), ota_status.changed()),
-        select(button_events.receive(), broker_status.changed()),
-        charger_status.changed(),
+        select(ports.network_status.wait(), ports.ota_status.changed()),
+        select(ports.power_events.receive(), ports.broker_status.changed()),
+        ports.charger_status.changed(),
     )
     .await
     {
         Either3::First(Either::First(status)) => DisplayEvent::Network(status),
         Either3::First(Either::Second(status)) => DisplayEvent::Ota(status),
-        Either3::Second(Either::First(event)) => DisplayEvent::Button(event),
+        Either3::Second(Either::First(event)) => DisplayEvent::Power(event),
         Either3::Second(Either::Second(status)) => DisplayEvent::Broker(status),
         Either3::Third(status) => DisplayEvent::Charger(status),
     }

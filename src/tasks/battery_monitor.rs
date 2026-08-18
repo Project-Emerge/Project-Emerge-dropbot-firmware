@@ -1,13 +1,11 @@
 use ariel_os::log::{Debug2Format, debug, error, info};
 use ariel_os::time::{Duration, Timer};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Sender;
-use embassy_sync::watch::Sender as WatchSender;
 
-use crate::data::battery::ChargerStatus;
+use crate::data::power::ShutdownReason;
 use crate::data::telemetry::BatteryTelemetry;
 use crate::drivers::battery_charger::BQ25887Charger;
 use crate::drivers::shared_i2c::BoardI2cDevice;
+use crate::task_sync::{BatteryTelemetryTx, ChargerStatusTx, ShutdownRequestTx};
 use crate::traits::BatteryCharger;
 
 /// How often the charger is sampled. The BQ25887's ADC runs continuously and the pack does
@@ -15,6 +13,17 @@ use crate::traits::BatteryCharger;
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Backoff before re-probing a charger that stopped answering.
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
+/// Low battery threshold: when the pack's state of charge falls below this while it is not
+/// charging, the board displays a warning and powers off. The BQ25887's SOC is a rough
+/// estimate, so this is set conservatively to avoid brown-out.
+const LOW_BATTERY_THRESHOLD: u8 = 15;
+
+/// Messaging endpoints owned by the battery-monitor task.
+pub struct BatteryMonitorPorts {
+    pub battery_telemetry: BatteryTelemetryTx,
+    pub charger_status: ChargerStatusTx,
+    pub shutdown_requests: ShutdownRequestTx,
+}
 
 /// Polls the BQ25887 charger and publishes what it reports.
 ///
@@ -24,11 +33,7 @@ const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 /// The charger shares its I2C bus with the display, so this task holds a
 /// [`BoardI2cDevice`] handle rather than the bus itself.
 #[ariel_os::task]
-pub async fn monitor_battery(
-    i2c: BoardI2cDevice,
-    battery_telemetry: Sender<'static, CriticalSectionRawMutex, BatteryTelemetry, 2>,
-    charger_status: WatchSender<'static, CriticalSectionRawMutex, ChargerStatus, 1>,
-) -> ! {
+pub async fn monitor_battery(i2c: BoardI2cDevice, ports: BatteryMonitorPorts) -> ! {
     let mut charger = BQ25887Charger::new(i2c);
 
     loop {
@@ -63,7 +68,15 @@ pub async fn monitor_battery(
                 Debug2Format(&status.state)
             );
 
-            charger_status.send(status);
+            ports.charger_status.send(status);
+
+            if status.state_of_charge() < LOW_BATTERY_THRESHOLD && !status.state.is_charging() {
+                info!(
+                    "battery: {}% and not charging; warning before power-off",
+                    status.state_of_charge()
+                );
+                let _ = ports.shutdown_requests.try_send(ShutdownReason::LowBattery);
+            }
 
             let telemetry = BatteryTelemetry {
                 voltage: f32::from(status.vbat_mv) / 1000.0,
@@ -74,7 +87,7 @@ pub async fn monitor_battery(
             };
             // The aggregator samples with `try_receive` and keeps the last value it saw, so
             // a full queue just means it has not caught up: dropping is the right call.
-            let _ = battery_telemetry.try_send(telemetry);
+            let _ = ports.battery_telemetry.try_send(telemetry);
         }
 
         Timer::after(RETRY_INTERVAL).await;

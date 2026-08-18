@@ -5,13 +5,11 @@ use ariel_os::reexports::embassy_net::{Ipv4Address, tcp::TcpSocket};
 use ariel_os::time::Timer;
 use ariel_os::{config, net};
 use embassy_futures::select::{Either, select};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::{Receiver, Sender};
-use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use minimq::{Buffers, ConfigBuilder, ConnectEvent, Error, Publication, Session};
 
 use crate::TCP_BUFFER_SIZE;
-use crate::data::mqtt::{BrokerStatus, PublishMessage, ReceivedMessage};
+use crate::data::mqtt::{BrokerStatus, ReceivedMessage};
+use crate::task_sync::{BrokerStatusTx, MqttPublishRx, MqttReceiveTx, NetworkReadyRx};
 use crate::topics::Topics;
 
 const MQTT_SERVER_HOST: &str = config::str_from_env_or!(
@@ -20,21 +18,26 @@ const MQTT_SERVER_HOST: &str = config::str_from_env_or!(
     "hostname or IP address of the MQTT server",
 );
 
+/// Messaging endpoints owned by the MQTT connection task.
+pub struct MqttManagerPorts {
+    pub network_ready: NetworkReadyRx,
+    pub broker_status: BrokerStatusTx,
+    pub mqtt_publish: MqttPublishRx,
+    pub mqtt_receive: MqttReceiveTx,
+}
+
 #[ariel_os::task]
 pub async fn mqtt_manager(
     device_id: &'static str,
     topics: &'static Topics,
-    mut network_ready: WatchReceiver<'static, CriticalSectionRawMutex, (), 2>,
-    broker_status: WatchSender<'static, CriticalSectionRawMutex, BrokerStatus, 5>,
-    mqtt_publish_rx: Receiver<'static, CriticalSectionRawMutex, PublishMessage, 5>,
-    mqtt_receive_tx: Sender<'static, CriticalSectionRawMutex, ReceivedMessage, 2>,
+    mut ports: MqttManagerPorts,
 ) -> ! {
-    broker_status.send(BrokerStatus::Disconnected);
+    ports.broker_status.send(BrokerStatus::Disconnected);
 
     // Waits on `network_ready` rather than `stack.wait_config_up()` directly: the latter
     // registers a single waker on the network stack, and `network_monitor` already owns
     // that role. `network_ready` is a dedicated watch it fills once the stack is up.
-    network_ready.get().await;
+    ports.network_ready.get().await;
     let stack = net::network_stack().await.unwrap();
 
     let mut tcp_rx_buffer = [0u8; TCP_BUFFER_SIZE];
@@ -89,13 +92,13 @@ pub async fn mqtt_manager(
             continue;
         }
 
-        broker_status.send(BrokerStatus::Connected);
+        ports.broker_status.send(BrokerStatus::Connected);
 
         // Drop any telemetry queued while we were disconnected/reconnecting so we publish fresh data first.
-        while mqtt_publish_rx.try_receive().is_ok() {}
+        while ports.mqtt_publish.try_receive().is_ok() {}
 
         loop {
-            match select(conn.recv(), mqtt_publish_rx.receive()).await {
+            match select(conn.recv(), ports.mqtt_publish.receive()).await {
                 Either::First(received) => match received {
                     Ok(message) => {
                         // The wire topic is matched against the table here, once, so it never
@@ -109,7 +112,8 @@ pub async fn mqtt_manager(
                             error!("mqtt: received payload too large, dropping message");
                             continue;
                         }
-                        if mqtt_receive_tx
+                        if ports
+                            .mqtt_receive
                             .try_send(ReceivedMessage { topic, payload })
                             .is_err()
                         {
@@ -142,6 +146,6 @@ pub async fn mqtt_manager(
 
         // Any of the `break`s above means the session is gone and the outer loop is about
         // to reconnect.
-        broker_status.send(BrokerStatus::Disconnected);
+        ports.broker_status.send(BrokerStatus::Disconnected);
     }
 }

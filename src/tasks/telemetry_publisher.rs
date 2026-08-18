@@ -1,28 +1,27 @@
 use ariel_os::log::debug;
 use ariel_os::log::error;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::{Receiver, Sender};
-use embassy_sync::watch::Receiver as WatchReceiver;
 
 use crate::data::mqtt::{BrokerStatus, PublishMessage};
-use crate::data::telemetry::Telemetry;
+use crate::task_sync::{AggregatedTelemetryRx, BrokerStatusRx, MqttPublishTx};
+
+/// Messaging endpoints owned by the aggregated-telemetry publisher.
+pub struct TelemetryPublisherPorts {
+    pub broker_status: BrokerStatusRx,
+    pub aggregated_telemetry: AggregatedTelemetryRx,
+    pub mqtt_publish: MqttPublishTx,
+}
 
 #[ariel_os::task]
-pub async fn publish_telemetry(
-    topic: &'static str,
-    mut broker_status: WatchReceiver<'static, CriticalSectionRawMutex, BrokerStatus, 5>,
-    aggregated_telemetry_rx: Receiver<'static, CriticalSectionRawMutex, Telemetry, 1>,
-    mqtt_publish_tx: Sender<'static, CriticalSectionRawMutex, PublishMessage, 5>,
-) -> ! {
+pub async fn publish_telemetry(topic: &'static str, mut ports: TelemetryPublisherPorts) -> ! {
     // Hold off until the broker session comes up the first time. Later drops are not
     // waited on: the manager drains its queue on reconnect, so anything queued meanwhile
     // would be stale by the time it could be sent.
-    while broker_status.get().await != BrokerStatus::Connected {
-        broker_status.changed().await;
+    while ports.broker_status.get().await != BrokerStatus::Connected {
+        ports.broker_status.changed().await;
     }
 
     loop {
-        let telemetry = aggregated_telemetry_rx.receive().await;
+        let telemetry = ports.aggregated_telemetry.receive().await;
 
         match serde_json::to_vec(&telemetry) {
             Ok(buffer) => {
@@ -35,7 +34,7 @@ pub async fn publish_telemetry(
                 let payload_len = payload.len();
                 let msg = PublishMessage { topic, payload };
 
-                match mqtt_publish_tx.try_send(msg) {
+                match ports.mqtt_publish.try_send(msg) {
                     Ok(_) => {
                         debug!("telemetry: queued {} bytes for publish", payload_len);
                     }
