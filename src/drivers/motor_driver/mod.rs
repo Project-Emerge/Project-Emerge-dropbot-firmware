@@ -62,20 +62,32 @@ where
         }
     }
 
+    /// Remaps a commanded speed magnitude in `(0.0, 1.0]` onto a duty-cycle percent in
+    /// `[min_duty_cycle, 1.0]`, so small commands still clear the motor's stiction threshold.
+    fn duty_cycle_percent(magnitude: f32, min_duty_cycle: f32) -> u8 {
+        let magnitude = magnitude.clamp(0.0, 1.0);
+        if magnitude <= 0.0 {
+            0
+        } else {
+            ((min_duty_cycle + magnitude * (1.0 - min_duty_cycle)) * 100.0) as u8
+        }
+    }
+
     fn set_motor_output<
         IN1: SetDutyCycle,
         IN2: SetDutyCycle<Error = <IN1 as PwmErrorType>::Error>,
     >(
         speed: f32,
+        min_duty_cycle: f32,
         in1_pin: &mut IN1,
         in2_pin: &mut IN2,
     ) -> Result<(), <IN1 as PwmErrorType>::Error> {
         if speed > 0.0 {
-            in1_pin.set_duty_cycle_percent((speed * 100.0) as u8)?;
+            in1_pin.set_duty_cycle_percent(Self::duty_cycle_percent(speed, min_duty_cycle))?;
             in2_pin.set_duty_cycle_fully_off()?;
         } else if speed < 0.0 {
             in1_pin.set_duty_cycle_fully_off()?;
-            in2_pin.set_duty_cycle_percent((-speed * 100.0) as u8)?;
+            in2_pin.set_duty_cycle_percent(Self::duty_cycle_percent(-speed, min_duty_cycle))?;
         } else {
             in1_pin.set_duty_cycle_percent(0)?;
             in2_pin.set_duty_cycle_percent(0)?;
@@ -92,13 +104,23 @@ where
         match side {
             Side::Left => {
                 self.left_speed = speed;
-                Self::set_motor_output(speed, &mut self.bin1, &mut self.bin2)
-                    .map_err(DRV8833Error::PwmError)?;
+                Self::set_motor_output(
+                    speed,
+                    self.config.min_duty_cycle,
+                    &mut self.bin1,
+                    &mut self.bin2,
+                )
+                .map_err(DRV8833Error::PwmError)?;
             }
             Side::Right => {
                 self.right_speed = speed;
-                Self::set_motor_output(speed, &mut self.ain1, &mut self.ain2)
-                    .map_err(DRV8833Error::PwmError)?;
+                Self::set_motor_output(
+                    speed,
+                    self.config.min_duty_cycle,
+                    &mut self.ain1,
+                    &mut self.ain2,
+                )
+                .map_err(DRV8833Error::PwmError)?;
             }
         }
         Ok(())
