@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/compare/project-emerge-firmware-v0.4.0...project-emerge-firmware-v0.4.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* avoid motor starving due to friction on low PWM values ([d8b1cdc](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/commit/d8b1cdc7c3b9c2c0eec616a02673099139adc056))
+
 ## [0.4.0](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/compare/project-emerge-firmware-v0.3.0...project-emerge-firmware-v0.4.0) (2026-08-18)
 
 
