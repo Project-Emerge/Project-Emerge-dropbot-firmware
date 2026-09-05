@@ -62,7 +62,11 @@ where
         }
     }
 
-    pub fn set_config(&mut self, config: MotorConfig) -> Result<(), DRV8833Error<<SLEEP as DigitalErrorType>::Error, <AIN1 as PwmErrorType>::Error>> {
+    pub fn set_config(
+        &mut self,
+        config: MotorConfig,
+    ) -> Result<(), DRV8833Error<<SLEEP as DigitalErrorType>::Error, <AIN1 as PwmErrorType>::Error>>
+    {
         self.config = config;
         Ok(())
     }

@@ -19,7 +19,11 @@ use embassy_sync::mutex::Mutex;
 use crate::drivers::shared_i2c::{BoardI2cBus, BoardI2cDevice, SharedI2c};
 use crate::pins::I2cBus;
 use crate::task_sync::{
-    AggregatedTelemetryChannel, BatteryTelemetryChannel, BrokerStatusWatch, ChargerStatusWatch, ImuStreamChannel, ImuTelemetryChannel, MotorCommandChannel, MotorConfigurationChannel, MotorTelemetryChannel, MqttPublishChannel, MqttReceiveChannel, NetworkReadyWatch, NetworkStatusSignal, NetworkTelemetryChannel, OtaCheckRequestSignal, OtaConfigurationWatch, OtaStatusWatch, PowerEventChannel, ShutdownRequestChannel,
+    AggregatedTelemetryChannel, BatteryTelemetryChannel, BrokerStatusWatch, ChargerStatusWatch,
+    ImuStreamChannel, ImuTelemetryChannel, MotorCommandChannel, MotorConfigurationChannel,
+    MotorTelemetryChannel, MqttPublishChannel, MqttReceiveChannel, NetworkReadyWatch,
+    NetworkStatusSignal, NetworkTelemetryChannel, OtaCheckRequestSignal, OtaConfigurationWatch,
+    OtaStatusWatch, PowerEventChannel, ShutdownRequestChannel,
 };
 use crate::tasks::{
     BatteryMonitorPorts, DisplayPorts, ImuMonitorPorts, ImuPublisherPorts, MotorControllerPorts,

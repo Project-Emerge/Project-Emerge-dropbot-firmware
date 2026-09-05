@@ -4,7 +4,9 @@ use serde_json::from_str;
 
 use crate::data::commands::DriveCommand;
 use crate::data::configurations::{MotorsConfiguration, OtaConfiguration};
-use crate::task_sync::{MotorCommandTx, MotorConfigurationTx, MqttReceiveRx, OtaCheckRequestSignal, OtaConfigurationTx};
+use crate::task_sync::{
+    MotorCommandTx, MotorConfigurationTx, MqttReceiveRx, OtaCheckRequestSignal, OtaConfigurationTx,
+};
 use crate::topics::InboundTopic;
 
 /// Messaging endpoints owned by the MQTT command-dispatch task.
@@ -49,18 +51,23 @@ pub async fn manage_mqtt_client(ports: MqttClientPorts) -> ! {
                     );
                 }
             },
-            InboundTopic::MotorConfiguration => match from_str::<MotorsConfiguration>(payload.as_str()) {
-                Ok(config) => {
-                    info!("mqtt: received motor configuration: {:?}", Debug2Format(&config));
-                    ports.motor_configurations.send(config).await
-                },
-                Err(e) => {
-                    error!(
-                        "mqtt: failed to parse motor configuration: {:?}",
-                        Debug2Format(&e)
-                    );
+            InboundTopic::MotorConfiguration => {
+                match from_str::<MotorsConfiguration>(payload.as_str()) {
+                    Ok(config) => {
+                        info!(
+                            "mqtt: received motor configuration: {:?}",
+                            Debug2Format(&config)
+                        );
+                        ports.motor_configurations.send(config).await
+                    }
+                    Err(e) => {
+                        error!(
+                            "mqtt: failed to parse motor configuration: {:?}",
+                            Debug2Format(&e)
+                        );
+                    }
                 }
-            },
+            }
             InboundTopic::OtaCheck => {
                 info!("mqtt: ota check requested via mqtt");
                 ports.ota_check_request.signal(());

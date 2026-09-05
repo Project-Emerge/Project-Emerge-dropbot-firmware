@@ -57,7 +57,9 @@ pub async fn manage_motor_controller(
         // motors and hold them de-energized for its whole duration, so the robot cannot
         // drive off unattended across the reboot. `set_speed` drives SLEEP high again, so
         // a failed update needs no explicit wake-up here.
-        if let Some(status) = ports.ota_status.try_changed() && status.is_active() {
+        if let Some(status) = ports.ota_status.try_changed()
+            && status.is_active()
+        {
             if let Err(e) = motor_driver.stop().and_then(|()| motor_driver.sleep()) {
                 error!("motors: shutdown for OTA failed: {:?}", Debug2Format(&e));
             }
@@ -95,8 +97,14 @@ pub async fn manage_motor_controller(
                 }
             }
             Either3::Second(config) => {
-                info!("motors: received configuration: {:?}", Debug2Format(&config));
-                let motor_config = MotorConfig {ema_filter_alpha: config.ema_filter_alpha, min_duty_cycle: config.min_duty_cycle };
+                info!(
+                    "motors: received configuration: {:?}",
+                    Debug2Format(&config)
+                );
+                let motor_config = MotorConfig {
+                    ema_filter_alpha: config.ema_filter_alpha,
+                    min_duty_cycle: config.min_duty_cycle,
+                };
                 if let Err(e) = motor_driver.set_config(motor_config) {
                     error!(
                         "motors: set_config({:?}) failed: {:?}",
@@ -104,7 +112,7 @@ pub async fn manage_motor_controller(
                         Debug2Format(&e)
                     );
                 }
-            },
+            }
             Either3::Third(()) => {
                 warn!("motors: no command received for 3s, stopping");
                 if let Err(e) = motor_driver.stop() {
