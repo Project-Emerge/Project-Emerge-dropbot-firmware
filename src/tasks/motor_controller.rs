@@ -1,7 +1,7 @@
 use ariel_os::gpio::Output;
 use ariel_os::log::{Debug2Format, error, info, warn};
 use ariel_os::time::Timer;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use esp_hal::mcpwm::{McPwm, PeripheralClockConfig, operator::PwmPinConfig, timer::PwmWorkingMode};
 use esp_hal::time::Rate;
 
@@ -9,13 +9,14 @@ use crate::data;
 use crate::data::telemetry::MotorTelemetry;
 use crate::drivers::motor_driver::{DRV8833Driver, types::MotorConfig};
 use crate::pins;
-use crate::task_sync::{MotorCommandRx, MotorTelemetryTx, OtaStatusRx};
+use crate::task_sync::{MotorCommandRx, MotorConfigurationRx, MotorTelemetryTx, OtaStatusRx};
 use crate::traits::{MotorController, MotorStatus};
 
 /// Messaging endpoints owned by the motor-controller task.
 pub struct MotorControllerPorts {
     pub motor_telemetry: MotorTelemetryTx,
     pub motor_commands: MotorCommandRx,
+    pub motor_configurations: MotorConfigurationRx,
     pub ota_status: OtaStatusRx,
 }
 
@@ -56,9 +57,7 @@ pub async fn manage_motor_controller(
         // motors and hold them de-energized for its whole duration, so the robot cannot
         // drive off unattended across the reboot. `set_speed` drives SLEEP high again, so
         // a failed update needs no explicit wake-up here.
-        if let Some(status) = ports.ota_status.try_changed()
-            && status.is_active()
-        {
+        if let Some(status) = ports.ota_status.try_changed() && status.is_active() {
             if let Err(e) = motor_driver.stop().and_then(|()| motor_driver.sleep()) {
                 error!("motors: shutdown for OTA failed: {:?}", Debug2Format(&e));
             }
@@ -68,13 +67,14 @@ pub async fn manage_motor_controller(
             info!("motors: OTA update ended, resuming");
         }
 
-        match select(
+        match select3(
             ports.motor_commands.receive(),
+            ports.motor_configurations.receive(),
             Timer::after(ariel_os::time::Duration::from_secs(3)),
         )
         .await
         {
-            Either::First(command) => {
+            Either3::First(command) => {
                 info!("motors: received command: {:?}", Debug2Format(&command));
                 match command {
                     data::commands::DriveCommand::Move { left, right } => {
@@ -94,7 +94,18 @@ pub async fn manage_motor_controller(
                     }
                 }
             }
-            Either::Second(()) => {
+            Either3::Second(config) => {
+                info!("motors: received configuration: {:?}", Debug2Format(&config));
+                let motor_config = MotorConfig {ema_filter_alpha: config.ema_filter_alpha, min_duty_cycle: config.min_duty_cycle };
+                if let Err(e) = motor_driver.set_config(motor_config) {
+                    error!(
+                        "motors: set_config({:?}) failed: {:?}",
+                        Debug2Format(&config),
+                        Debug2Format(&e)
+                    );
+                }
+            },
+            Either3::Third(()) => {
                 warn!("motors: no command received for 3s, stopping");
                 if let Err(e) = motor_driver.stop() {
                     error!("motors: stop failed: {:?}", Debug2Format(&e));

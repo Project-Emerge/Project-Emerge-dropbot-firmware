@@ -12,7 +12,7 @@ use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender, Watc
 
 use crate::data::battery::ChargerStatus;
 use crate::data::commands::DriveCommand;
-use crate::data::configurations::OtaConfiguration;
+use crate::data::configurations::{MotorsConfiguration, OtaConfiguration};
 use crate::data::mqtt::{BrokerStatus, PublishMessage, ReceivedMessage};
 use crate::data::ota::OtaStatus;
 use crate::data::power::{PowerEvent, ShutdownReason};
@@ -92,3 +92,7 @@ pub type ChargerStatusRx = WatchReceiver<'static, TaskMutex, ChargerStatus, 1>;
 pub type MotorCommandChannel = Channel<TaskMutex, DriveCommand, 2>;
 pub type MotorCommandTx = Sender<'static, TaskMutex, DriveCommand, 2>;
 pub type MotorCommandRx = Receiver<'static, TaskMutex, DriveCommand, 2>;
+
+pub type MotorConfigurationChannel = Channel<TaskMutex, MotorsConfiguration, 2>;
+pub type MotorConfigurationTx = Sender<'static, TaskMutex, MotorsConfiguration, 2>;
+pub type MotorConfigurationRx = Receiver<'static, TaskMutex, MotorsConfiguration, 2>;

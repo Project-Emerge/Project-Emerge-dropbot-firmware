@@ -19,11 +19,7 @@ use embassy_sync::mutex::Mutex;
 use crate::drivers::shared_i2c::{BoardI2cBus, BoardI2cDevice, SharedI2c};
 use crate::pins::I2cBus;
 use crate::task_sync::{
-    AggregatedTelemetryChannel, BatteryTelemetryChannel, BrokerStatusWatch, ChargerStatusWatch,
-    ImuStreamChannel, ImuTelemetryChannel, MotorCommandChannel, MotorTelemetryChannel,
-    MqttPublishChannel, MqttReceiveChannel, NetworkReadyWatch, NetworkStatusSignal,
-    NetworkTelemetryChannel, OtaCheckRequestSignal, OtaConfigurationWatch, OtaStatusWatch,
-    PowerEventChannel, ShutdownRequestChannel,
+    AggregatedTelemetryChannel, BatteryTelemetryChannel, BrokerStatusWatch, ChargerStatusWatch, ImuStreamChannel, ImuTelemetryChannel, MotorCommandChannel, MotorConfigurationChannel, MotorTelemetryChannel, MqttPublishChannel, MqttReceiveChannel, NetworkReadyWatch, NetworkStatusSignal, NetworkTelemetryChannel, OtaCheckRequestSignal, OtaConfigurationWatch, OtaStatusWatch, PowerEventChannel, ShutdownRequestChannel,
 };
 use crate::tasks::{
     BatteryMonitorPorts, DisplayPorts, ImuMonitorPorts, ImuPublisherPorts, MotorControllerPorts,
@@ -84,6 +80,7 @@ static SHUTDOWN_REQUESTS: ShutdownRequestChannel = ShutdownRequestChannel::new()
 static CHARGER_STATUS: ChargerStatusWatch = ChargerStatusWatch::new();
 
 static MOTOR_COMMAND: MotorCommandChannel = MotorCommandChannel::new();
+static MOTOR_CONFIGURATION: MotorConfigurationChannel = MotorConfigurationChannel::new();
 
 // The board's single I2C bus, built here because it outlives -- and is shared by -- the
 // display, battery and IMU tasks.
@@ -129,6 +126,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
             MotorControllerPorts {
                 motor_telemetry: MOTOR_TELEMETRY.sender(),
                 motor_commands: MOTOR_COMMAND.receiver(),
+                motor_configurations: MOTOR_CONFIGURATION.receiver(),
                 ota_status: OTA_STATUS.receiver().unwrap(),
             },
         ))
@@ -197,6 +195,7 @@ fn main(spawner: ariel_os::asynch::Spawner, peripherals: pins::Peripherals) {
         .spawn(manage_mqtt_client(MqttClientPorts {
             mqtt_receive: MQTT_RECEIVE.receiver(),
             motor_commands: MOTOR_COMMAND.sender(),
+            motor_configurations: MOTOR_CONFIGURATION.sender(),
             ota_check_request: &OTA_CHECK_REQUEST,
             ota_configuration: OTA_CONFIGURATION.sender(),
         }))

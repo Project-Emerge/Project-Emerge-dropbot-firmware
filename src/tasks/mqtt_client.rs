@@ -3,14 +3,15 @@ use heapless::String;
 use serde_json::from_str;
 
 use crate::data::commands::DriveCommand;
-use crate::data::configurations::OtaConfiguration;
-use crate::task_sync::{MotorCommandTx, MqttReceiveRx, OtaCheckRequestSignal, OtaConfigurationTx};
+use crate::data::configurations::{MotorsConfiguration, OtaConfiguration};
+use crate::task_sync::{MotorCommandTx, MotorConfigurationTx, MqttReceiveRx, OtaCheckRequestSignal, OtaConfigurationTx};
 use crate::topics::InboundTopic;
 
 /// Messaging endpoints owned by the MQTT command-dispatch task.
 pub struct MqttClientPorts {
     pub mqtt_receive: MqttReceiveRx,
     pub motor_commands: MotorCommandTx,
+    pub motor_configurations: MotorConfigurationTx,
     pub ota_check_request: &'static OtaCheckRequestSignal,
     pub ota_configuration: OtaConfigurationTx,
 }
@@ -44,6 +45,18 @@ pub async fn manage_mqtt_client(ports: MqttClientPorts) -> ! {
                 Err(e) => {
                     error!(
                         "mqtt: failed to parse motor command: {:?}",
+                        Debug2Format(&e)
+                    );
+                }
+            },
+            InboundTopic::MotorConfiguration => match from_str::<MotorsConfiguration>(payload.as_str()) {
+                Ok(config) => {
+                    info!("mqtt: received motor configuration: {:?}", Debug2Format(&config));
+                    ports.motor_configurations.send(config).await
+                },
+                Err(e) => {
+                    error!(
+                        "mqtt: failed to parse motor configuration: {:?}",
                         Debug2Format(&e)
                     );
                 }

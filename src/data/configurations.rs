@@ -24,15 +24,8 @@ impl OtaConfiguration {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MotorsConfiguration {
     pub ema_filter_alpha: Option<f32>,
-    pub max_speed: f32,
-}
-
-#[derive(Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct Configuration {
-    pub motors: MotorsConfiguration,
+    pub min_duty_cycle: f32,
 }

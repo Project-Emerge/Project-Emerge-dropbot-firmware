@@ -62,6 +62,11 @@ where
         }
     }
 
+    pub fn set_config(&mut self, config: MotorConfig) -> Result<(), DRV8833Error<<SLEEP as DigitalErrorType>::Error, <AIN1 as PwmErrorType>::Error>> {
+        self.config = config;
+        Ok(())
+    }
+
     /// Remaps a commanded speed magnitude in `(0.0, 1.0]` onto a duty-cycle percent in
     /// `[min_duty_cycle, 1.0]`, so small commands still clear the motor's stiction threshold.
     fn duty_cycle_percent(magnitude: f32, min_duty_cycle: f32) -> u8 {
