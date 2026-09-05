@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/compare/project-emerge-firmware-v0.4.1...project-emerge-firmware-v0.5.0) (2026-09-05)
+
+
+### Features
+
+* implement motors configuration via mqtt ([8d442ec](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/commit/8d442ecbddc84c9672fab5cc354819abe0e31529))
+
+
+### Bug Fixes
+
+* prevent error connection to restored broker mqtt ([cc4b325](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/commit/cc4b32593ba0a8895bed6549eb8f96c2b67d5cbb))
+
 ## [0.4.1](https://github.com/Project-Emerge/Project-Emerge-dropbot-firmware/compare/project-emerge-firmware-v0.4.0...project-emerge-firmware-v0.4.1) (2026-09-04)
 
 
