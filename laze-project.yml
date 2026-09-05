@@ -33,5 +33,6 @@ apps:
     selects:
       - network
       - logging-over-usb
+      - random
     context:
       - dropbot
